@@ -1,0 +1,19 @@
+[package]
+name = "ledger-server"
+version = "0.1.0"
+edition = "2021"
+description = "HTTP/gRPC server for the causal-diamond engine"
+authors = ["Reality's Ledger Team <dev@realitysledger.org>"]
+license = "MIT"
+repository = "https://github.com/realitysledger/causal-diamond-engine"
+
+[dependencies]
+anyhow = "1.0"
+axum = "0.7"
+engine = { path = "../../engine" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.36", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+

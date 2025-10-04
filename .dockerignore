@@ -1,0 +1,16 @@
+.git
+.venv
+node_modules
+.target
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.dylib
+*.log
+notebooks
+/data
+/tests
+web/ui/node_modules
+web/docs-site/node_modules

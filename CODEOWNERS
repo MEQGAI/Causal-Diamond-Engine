@@ -1,0 +1,8 @@
+# Default owners for the repository
+* @repo-owner
+
+# Language-specific paths
+/apps/ @repo-owner
+/engine/ @repo-owner
+/python/ @repo-owner
+/web/ @repo-owner

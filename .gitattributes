@@ -1,0 +1,23 @@
+* text=auto eol=lf
+
+# Treat shell scripts as text with LF endings
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Keep binary artifacts untouched
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.otf binary
+*.ttf binary
+*.pdf binary
+*.bin binary
+
+# Enforce diff settings for code
+*.rs linguist-language=Rust
+*.py linguist-language=Python
+*.ts linguist-language=TypeScript
+*.tsx linguist-language=TypeScript
+*.cpp linguist-language=C++
+*.cu linguist-language=CUDA

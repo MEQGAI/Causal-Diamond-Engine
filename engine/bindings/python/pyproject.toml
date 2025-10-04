@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.5.1"]
+build-backend = "maturin"
+
+[project]
+name = "ledger-python"
+version = "0.1.0"
+description = "PyO3 bindings for the Reality's Ledger causal-diamond engine"
+requires-python = ">=3.11"
+license = { file = "../../LICENSE" }
+readme = "../../README.md"
+
+[tool.maturin]
+bindings = "pyo3"
+features = []

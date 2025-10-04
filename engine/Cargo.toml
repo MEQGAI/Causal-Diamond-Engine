@@ -1,0 +1,23 @@
+[package]
+name = "engine"
+version = "0.1.0"
+edition = "2021"
+description = "Causal-diamond reasoning core"
+authors = ["Reality's Ledger Team <dev@realitysledger.org>"]
+license = "MIT"
+repository = "https://github.com/realitysledger/causal-diamond-engine"
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+rand = "0.8"
+indexmap = "2.2"
+uuid = { version = "1.7", features = ["v4"] }
+
+[dev-dependencies]
+once_cell = "1.19"
+proptest = "1.4"

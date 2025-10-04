@@ -1,0 +1,79 @@
+# General
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.log
+*.tmp
+*.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+.pdm-build/
+poetry.lock.bak
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.coverage*
+.hypothesis/
+.ipynb_checkpoints/
+
+# Rust
+/target/
+
+# Node / TypeScript
+node_modules/
+yarn.lock
+pnpm-lock.yaml
+package-lock.json
+.npm/
+.next/
+dist-ssr/
+
+# C++ / CUDA
+cmake-build-*/
+*.o
+*.obj
+*.ptx
+
+# Terraform / Infra
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate*
+
+# Data & models
+/data/raw/
+/data/external/
+/data/interim/
+/data/processed/
+/models/
+checkpoints/
+
+# Notebooks & outputs
+notebooks/.ipynb_checkpoints/
+outputs/
+reports/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.code-workspace
+
+# Docker / Compose
+.docker-cache/
+
+# Misc
+.env
+.env.local
+.env.*
+!.env.example
+

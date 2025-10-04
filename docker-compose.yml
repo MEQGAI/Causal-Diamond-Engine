@@ -1,0 +1,18 @@
+version: "3.10"
+services:
+  ledger:
+    build: .
+    image: ledger-engine:latest
+    environment:
+      - LEDGER_CONFIG=/srv/ledger/configs/ledger.default.yaml
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/srv/ledger/data
+      - ./configs:/srv/ledger/configs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped

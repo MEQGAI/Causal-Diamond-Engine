@@ -1,0 +1,15 @@
+[package]
+name = "ledger-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Operator CLI for the causal-diamond engine"
+authors = ["Reality's Ledger Team <dev@realitysledger.org>"]
+license = "MIT"
+repository = "https://github.com/realitysledger/causal-diamond-engine"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+engine = { path = "../../engine" }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+

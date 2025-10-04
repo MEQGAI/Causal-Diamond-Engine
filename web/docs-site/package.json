@@ -1,0 +1,19 @@
+{
+  "name": "ledger-docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint docs --ext .ts,.tsx,.mdx",
+    "build": "tsc --project tsconfig.json",
+    "test": "echo 'No docs tests yet'",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "typedoc": "^0.25.11"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30"
+  }
+}

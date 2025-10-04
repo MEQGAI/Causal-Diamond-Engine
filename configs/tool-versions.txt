@@ -1,0 +1,10 @@
+python=3.11
+pip=24.0
+rust=1.76.0
+cargo=1.76.0
+node=20.11.1
+npm=10.2.4
+maturin=1.5.1
+poetry=1.7.1
+cuda=12.1
+cmake=3.28

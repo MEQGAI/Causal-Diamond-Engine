@@ -1,0 +1,17 @@
+- name: faiss
+  repo: https://github.com/facebookresearch/faiss.git
+  ref: v1.7.4
+  license: MIT
+  integration: other   # via python package faiss-cpu
+
+- name: hnswlib
+  repo: https://github.com/nmslib/hnswlib.git
+  ref: v0.7.0
+  license: Apache-2.0
+  integration: other   # optional build linking for vector memory
+
+- name: modal-emergent-quantum-gravity
+  repo: https://github.com/realitysledger/meqg-notes.git
+  ref: main
+  license: CC-BY-4.0
+  integration: docs

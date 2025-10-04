@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.76.0
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Python
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: ${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements*.txt') }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Python deps
+        run: |
+          python -m venv .venv
+          ./.venv/bin/pip install --upgrade pip
+          ./.venv/bin/pip install -r requirements.txt
+          ./.venv/bin/pip install -r requirements-dev.txt
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Node deps
+        run: npm ci
+
+      - name: Lint
+        run: |
+          ./.venv/bin/ruff check python tests
+          ./.venv/bin/black --check python tests
+          ./.venv/bin/isort --check-only python tests
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          npm run lint
+
+      - name: Typecheck
+        run: |
+          ./.venv/bin/mypy python
+          npm run typecheck -w web/ui
+          npm run typecheck -w web/docs-site
+          cargo check --all
+
+      - name: Tests
+        run: |
+          ./.venv/bin/pytest -q
+          cargo test --all
+          npm run test

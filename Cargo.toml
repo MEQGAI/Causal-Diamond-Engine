@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "engine",
+    "apps/cli",
+    "apps/server",
+    "engine/bindings/python"
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["Reality's Ledger Team <dev@realitysledger.org>"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/realitysledger/causal-diamond-engine"

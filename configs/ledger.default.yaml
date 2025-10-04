@@ -1,0 +1,26 @@
+engine:
+  diamond:
+    depth: 8
+    width: 4
+    horizon: 2.0
+  stability:
+    max_kl: 1.0
+    null_margin: 0.05
+  retriever:
+    provider: vector
+    top_k: 8
+python:
+  trainer:
+    task: tool_reasoning
+    budget: 2.0
+    epochs: 1
+    batch_size: 2
+web:
+  ui:
+    port: 4173
+ops:
+  ci:
+    python_versions:
+      - "3.10"
+      - "3.11"
+      - "3.12"

@@ -1,0 +1,30 @@
+{
+  "name": "causal-diamond-engine",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Operator UI and docs for Reality's Ledger",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "web/ui",
+    "web/docs-site"
+  ],
+  "scripts": {
+    "lint": "npm run lint -w web/ui && npm run lint -w web/docs-site",
+    "build": "npm run build -w web/ui && npm run build -w web/docs-site",
+    "test": "npm run test -w web/ui && npm run test -w web/docs-site",
+    "format": "npm run format -w web/ui && npm run format -w web/docs-site",
+    "typecheck": "npm run typecheck -w web/ui && npm run typecheck -w web/docs-site"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.3.1",
+    "@typescript-eslint/parser": "^7.3.1",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.3"
+  }
+}
