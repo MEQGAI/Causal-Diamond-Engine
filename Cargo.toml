@@ -2,8 +2,9 @@
 members = [
     "engine",
     "apps/cli",
-    "apps/server",
-    "engine/bindings/python"
+    "serving/python/server",
+    "model/fm_bindings",
+    "serving/rust"
 ]
 resolver = "2"
 

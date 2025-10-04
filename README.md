@@ -43,9 +43,12 @@
 # 1) Install
 git clone https://example.com/meqg-diamond.git
 cd meqg-diamond
-pip install -e .  # dev install
+pip install -e ./model  # dev install for all fm_* packages
 
-# 2) (Optional) Download a toy checkpoint
+# 2) (Optional) Bootstrap helpers
+make setup  # installs dev dependencies + hooks
+
+# 3) (Optional) Download a toy checkpoint
 # See: assets/checkpoints/README.md for links
 ```
 
@@ -77,6 +80,22 @@ diamond run \
   --tools python \
   --prompt "Solve: (x+3)(x-2)=0. Show steps."
 ```
+
+### Monorepo workflow
+
+The new monorepo exposes consistent automation via `make`:
+
+```bash
+make setup         # pip install -e ./model + dev dependencies
+make lint          # ruff + black + cargo fmt --check
+make test          # pytest + cargo test (engine + serving)
+make build_wheels  # maturin build + kernel stubs
+make run_server    # uvicorn serving.python.src.app:app --reload
+make train         # fm_train CLI w/ configs/train/default.yaml
+make eval          # fm_eval kill-numbers gate
+```
+
+The CI workflows mirror these targets (`.github/workflows/python.yml`, `rust.yml`, `docker.yml`, `docs.yml`).
 
 **Training (end‑to‑end sample command):**
 
@@ -352,23 +371,35 @@ POST /v1/diamond/run
 
 ```
 .
-├── diamond/
-│   ├── runtime/               # Engine, budgets, gate
-│   ├── model/                 # Backbone, planner head, view family
-│   ├── objective/             # S_geo, S_ent, S_mod implementations
-│   ├── tools/                 # python sandbox, search stub, schemas
-│   ├── retrieval/             # policy, rerankers, stores
-│   ├── telemetry/             # logging, dashboards, exporters
-│   └── api/                   # HTTP/gRPC server
-├── eval/                      # benchmarks, reports
-├── scripts/                   # train/run helpers
-├── assets/checkpoints/        # (links + hashes)
-├── docs/
-│   ├── theory/                # MEQG deep dive, proofs, derivations
-│   ├── diagrams/              # architecture figures
-│   └── api/                   # auto-generated reference
-└── LICENSE, LICENSE-MODEL, README.md
+├── model/
+│   ├── fm_core/       # architectures & tokenization
+│   ├── fm_data/       # dataset builders & catalogs
+│   ├── fm_train/      # trainer, schedulers, CLI adapters
+│   ├── fm_eval/       # eval harness + kill-switch runner
+│   ├── fm_serving/    # python-facing serving adapters
+│   ├── fm_kernels/    # C++/CUDA extensions (torch cpp_extension)
+│   ├── fm_bindings/   # PyO3 bindings (maturin package)
+│   └── fm_rag/        # retrieval & memory adapters
+├── serving/
+│   ├── python/        # ASGI shim + legacy ledger-server crate
+│   ├── rust/          # new Axum runtime placeholder
+│   └── ui/            # (moved) front-end assets
+├── configs/
+│   ├── data/
+│   ├── eval/
+│   ├── models/
+│   ├── serving/
+│   └── train/
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── golden/
+├── experiments/notebooks/  # sandbox experiments
+├── docs/ (MODEL_CARD, SAFETY_CARD, EVALUATION)
+└── scripts/, engine/, external/, infra/, LICENSE*
 ```
+
+See `docs/MODEL_CARD.md` for model specifics and `docs/EVALUATION.md` for the new gating workflow.
 
 ---
 
@@ -473,5 +504,3 @@ def diamond_step(state, budget, cfg):
 ```
 
 ---
-
-If you’d like, I can also generate the companion docs skeletons (`docs/theory/`, `docs/roadmap.md`, and `assets/checkpoints/README.md`) to match this README.

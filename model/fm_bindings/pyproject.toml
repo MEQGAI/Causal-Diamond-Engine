@@ -1,0 +1,8 @@
+[build-system]
+requires = ["maturin>=1.4"]
+build-backend = "maturin"
+
+[project]
+name = "fm-bindings"
+version = "0.0.1"
+requires-python = ">=3.10"

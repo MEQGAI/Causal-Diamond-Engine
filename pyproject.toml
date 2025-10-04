@@ -2,73 +2,12 @@
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+where = ["model"]
+namespaces = false
+
 [project]
-name = "causal-diamond-engine"
-version = "0.1.0"
-description = "Research stack for the Reality's Ledger causal-diamond engine"
-readme = "README.md"
-requires-python = ">=3.11,<3.13"
-authors = [
-  { name = "Reality's Ledger Team", email = "dev@realitysledger.org" }
-]
-license = { file = "LICENSE" }
-classifiers = [
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
-  "Topic :: Scientific/Engineering :: Artificial Intelligence",
-  "Framework :: AsyncIO",
-]
-keywords = ["causal-diamond", "modal-ledger", "reasoning", "mlops"]
-dynamic = ["dependencies", "optional-dependencies"]
-
-[project.urls]
-Homepage = "https://github.com/realitysledger/causal-diamond-engine"
-Documentation = "https://github.com/realitysledger/causal-diamond-engine/tree/main/docs"
-
-[tool.setuptools]
-packages = ["python"]
-package-dir = {"" = "python"}
-
-[tool.black]
-line-length = 100
-skip-string-normalization = false
-
-[tool.isort]
-profile = "black"
-line_length = 100
-src_paths = ["python", "tests"]
-
-[tool.mypy]
-python_version = "3.11"
-plugins = []
-ignore_missing_imports = true
-warn_unused_ignores = true
-warn_redundant_casts = true
-warn_unused_configs = true
-strict_optional = true
-namespace_packages = true
-mypy_path = ["python"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-ra --strict-markers --disable-warnings"
-
-[tool.ruff]
-line-length = 100
-indent-width = 4
-respect-gitignore = true
-src = ["python", "tests"]
-
-[tool.ruff.lint]
-select = ["E", "F", "B", "I", "UP", "N", "ANN"]
-ignore = ["ANN101", "ANN102"]
-fixable = ["ALL"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["D"]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-
+name = "foundation-workspace"
+version = "0.0.1"
+requires-python = ">=3.10"
+dependencies = []

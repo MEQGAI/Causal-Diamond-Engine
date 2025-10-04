@@ -1,0 +1,6 @@
+# Example pointer to the live dataset catalog.
+catalog: data/catalog.yaml
+sources:
+  - name: synthetic_multihop
+    description: Placeholder dataset entry
+    path: data/raw/synthetic_multihop.jsonl

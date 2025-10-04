@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from python.trainer.scheduler import TrainingScheduler
+from fm_train.trainer.scheduler import TrainingScheduler
 
 
 def test_scheduler_writes_ledger(tmp_path: Path) -> None:

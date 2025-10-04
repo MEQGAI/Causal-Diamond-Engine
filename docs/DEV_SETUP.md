@@ -45,7 +45,7 @@ This guide describes how to prepare a workstation for Reality's Ledger.
   - `engine` — causal-diamond core
   - `apps/cli` — operator CLI
   - `apps/server` — HTTP server
-  - `engine/bindings/python` — PyO3 bindings
+  - `model/fm_bindings` — PyO3 bindings
 
 ## Node / TypeScript
 

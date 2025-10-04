@@ -1,98 +1,40 @@
-SHELL := /bin/bash
-VENV := .venv
-PYTHON := $(VENV)/bin/python
-PIP := $(VENV)/bin/pip
-NPM := npm
-TypeScriptTargets := web/ui web/docs-site
+.PHONY: setup fmt lint test build_wheels run_server train eval docker_build
 
-.PHONY: help bootstrap setup install lint test format typecheck precommit run clean docker-build docker-up docker-down
-
-help:
-	@echo "Available targets:"
-	@echo "  bootstrap    - Dry-run bootstrap plan"
-	@echo "  setup        - Full bootstrap with --apply"
-	@echo "  install      - Install Python/Rust/Node dependencies"
-	@echo "  lint         - Run Python, Rust, and JS linters"
-	@echo "  test         - Execute unit tests across stacks"
-	@echo "  format       - Auto-format source files"
-	@echo "  typecheck    - Static analysis for Python, TS, Rust"
-	@echo "  precommit    - Run pre-commit hooks on all files"
-	@echo "  run          - Launch CLI banner smoke test"
-	@echo "  clean        - Remove build artifacts"
-	@echo "  docker-build - Build Docker image"
-	@echo "  docker-up    - Start docker-compose stack"
-	@echo "  docker-down  - Stop docker-compose stack"
-
-bootstrap:
-	bash scripts/bootstrap.sh
+PYTHON ?= python3
 
 setup:
-	bash scripts/bootstrap.sh --apply
-
-$(VENV): requirements.txt requirements-dev.txt
-	python3 -m venv $(VENV)
 	$(PYTHON) -m pip install --upgrade pip
-	$(PIP) install -r requirements.txt
-	$(PIP) install -r requirements-dev.txt
+	$(PYTHON) -m pip install -e ./model
+	$(PYTHON) -m pip install -r requirements-dev.txt
 
-install: $(VENV)
-	@echo "Installing Rust deps"
-	cargo fetch
-	@echo "Installing Node deps"
-	$(NPM) ci
+fmt:
+	$(PYTHON) -m ruff check --fix model tests
+	$(PYTHON) -m black model tests
+	cargo fmt
 
-lint: $(VENV)
-	$(VENV)/bin/ruff check python tests
-	$(VENV)/bin/black --check python tests
-	$(VENV)/bin/isort --check-only python tests
-	cargo fmt --all -- --check
-	cargo clippy --all-targets --all-features -- -D warnings
-	$(NPM) run lint
+lint:
+	$(PYTHON) -m ruff check model tests
+	$(PYTHON) -m black --check model tests
+	cargo fmt -- --check
 
-format: $(VENV)
-	$(VENV)/bin/ruff check python tests --fix --unsafe-fixes
-	$(VENV)/bin/black python tests
-	$(VENV)/bin/isort python tests
-	cargo fmt --all
-	$(NPM) run format
+test:
+	$(PYTHON) -m pytest -q
+	cargo test -p engine
+	cargo test --manifest-path serving/rust/Cargo.toml
 
-typecheck: $(VENV)
-	$(VENV)/bin/mypy python
-	@for pkg in $(TypeScriptTargets); do \
-		$(NPM) run typecheck -w $$pkg || exit 1; \
-	done
-	cargo check --all
+build_wheels:
+	maturin build -m model/fm_bindings/Cargo.toml
+	$(PYTHON) -m pip install -e ./model
+	$(PYTHON) model/fm_kernels/setup.py build
 
-pytest:
-	$(VENV)/bin/pytest -q
+run_server:
+	uvicorn serving.python.src.app:app --reload
 
-jstest:
-	$(NPM) run test
+train:
+	$(PYTHON) -m fm_train.trainer.run --config configs/train/default.yaml
 
-rusttest:
-	cargo test --all
+eval:
+	$(PYTHON) -m fm_eval.runner --config configs/eval/kill_numbers.yaml
 
-test: $(VENV)
-	make pytest
-	make rusttest
-	make jstest
-
-precommit: $(VENV)
-	$(VENV)/bin/pre-commit run --all-files
-
-run:
-	cargo run -p ledger-cli -- banner
-
-clean:
-	rm -rf $(VENV) .mypy_cache .pytest_cache target node_modules web/ui/dist web/docs-site/dist
-
-DockerImage := ledger-engine
-
-docker-build:
-	docker build -t $(DockerImage) .
-
-docker-up:
-	docker compose up -d
-
-docker-down:
-	docker compose down
+docker_build:
+	docker build -f Dockerfile -t foundation/workspace:latest .

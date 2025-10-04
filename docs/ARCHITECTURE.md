@@ -15,7 +15,7 @@ The Rust workspace provides deterministic execution:
 - `engine/src/ledger` stores accepted updates; `stability` enforces KL-bounded gates
 - `apps/cli` wraps the engine in a low-latency CLI
 - `apps/server` serves HTTP (`/healthz`) for operators and automation
-- `engine/bindings/python` delivers a PyO3 shim (`ledger_python`) for research workflows
+- `model/fm_bindings` delivers a PyO3 shim (`ledger_python`) for research workflows
 
 ## Python research stack
 

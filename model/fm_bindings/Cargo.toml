@@ -1,0 +1,28 @@
+[package]
+name = "ledger-python"
+version = "0.1.0"
+edition = "2021"
+description = "PyO3 bindings for the causal-diamond engine"
+authors = ["Reality's Ledger Team <dev@realitysledger.org>"]
+license = "MIT"
+repository = "https://github.com/realitysledger/causal-diamond-engine"
+
+[lib]
+name = "ledger_python"
+crate-type = ["cdylib"]
+
+[dependencies]
+engine = { path = "../../engine" }
+pyo3 = { version = "0.20", features = ["extension-module", "abi3-py311"] }
+
+[build-dependencies]
+pyo3-build-config = "0.20"
+
+[package.metadata.maturin]
+classifier = [
+  "Programming Language :: Python",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.11"
