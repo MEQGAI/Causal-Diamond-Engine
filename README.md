@@ -1,330 +1,477 @@
-# Reality’s Ledger — A Causal‑Diamond Engine for General‑Purpose Intelligence
+# MEQG Diamond — A Reasoning‑First Foundation Stack
 
-> **Tagline:** A reasoning system that *extremizes information* on nested contexts (“causal diamonds”) to decide what to attend to, what to remember, and what to do next—under principled stability constraints.
+**Causal‑Diamond Engine + Modal Ledger + Null‑Stability Gate**
+
+[![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license) [![status: research-preview](https://img.shields.io/badge/status-research--preview-orange)](#status) [![docs](https://img.shields.io/badge/docs-theory%20&%20api-informational)](#documentation)
+
+**MEQG Diamond** is a foundation‑model stack optimized for **long‑horizon, tool‑using, retrieval‑heavy reasoning**. It introduces:
+
+* a **Causal‑Diamond optimization episode** (bounded time/FLOP/memory),
+* a **Modal Ledger** that measures information discarded when committing to a working view,
+* a **Null‑Stability Gate** that accepts only locally stable updates (trust‑region + Armijo + KL‑smoothness).
+
+> **Design goal:** trade a bit of raw fluency for **stability, auditability, and sample‑efficiency**—with measurable reductions in cascade errors and better calibration under tight budgets.
 
 ---
 
-## Why this exists
+## Table of contents
 
-Modern LLMs are extraordinary pattern learners, but they struggle with **stable multi‑step reasoning**, **long‑horizon memory**, **uncertainty accounting**, and **interpretable control of attention**. **Reality’s Ledger** proposes a compact, testable architecture that treats a model’s current working context as a *causal diamond* (a bounded region of space‑time/compute), and drives inference by **extremizing a single objective** over three channels:
+1. [Quickstart](#quickstart)
+2. [Checkpoints & Sizes](#checkpoints--sizes)
+3. [Architecture](#architecture)
+4. [Objective (precise math)](#objective-precise-math)
+5. [Null‑Stability (Acceptance Criteria)](#nullstability-acceptance-criteria)
+6. [Memory, Retrieval & Views](#memory-retrieval--views)
+7. [Tool Use](#tool-use)
+8. [Evaluation](#evaluation)
+9. [Performance & Hardware](#performance--hardware)
+10. [Reproducibility](#reproducibility)
+11. [API Reference](#api-reference)
+12. [Safety, Limitations & Intended Use](#safety-limitations--intended-use)
+13. [Project Layout](#project-layout)
+14. [Roadmap & Milestones](#roadmap--milestones)
+15. [Citations & Background](#citations--background)
+16. [License](#license)
 
-1. **Geometric (capacity/structure):** what the model can represent and how expensive it is.
-2. **Entanglement (informational coupling):** what the current evidence says (attention/likelihood).
-3. **Modal (ledger/actualization):** how “costly” it is to commit to one actualized summary of possibilities vs. keep ambiguity (uncertainty budget & exploration).
+---
 
-This structure is inspired by the master variational law in the Modal Emergent Quantum Gravity (MEQG) program, where generalized entropy on causal diamonds is extremized,
+## Quickstart
+
+> **Prereqs:** Python ≥ 3.10, CUDA‑enabled PyTorch (or CPU), `gcc`/`clang` for optional fused ops.
+
+```bash
+# 1) Install
+git clone https://example.com/meqg-diamond.git
+cd meqg-diamond
+pip install -e .  # dev install
+
+# 2) (Optional) Download a toy checkpoint
+# See: assets/checkpoints/README.md for links
+```
+
+**Run an inference episode (a “diamond”) with a FLOP/time budget and a Python tool:**
+
+```python
+from diamond.runtime import DiamondEngine, Budget, Tools
+
+engine = DiamondEngine.from_pretrained("meqg-diamond-tiny-220M")
+budget = Budget(seconds=2.0, max_flops=3e11, max_kv_bytes=128*1024*1024)
+
+resp = engine.run(
+    prompt="What will the temperature be in Paris next weekend? Use the weather tool.",
+    tools=[Tools.python_sandbox()],       # plug tools here
+    budget=budget,
+    telemetry=True                        # emits ledger & gate stats
+)
+
+print(resp.text)
+print(resp.telemetry["modal_ledger"])     # KL ledger entries
+```
+
+**CLI (one‑liner):**
+
+```bash
+diamond run \
+  --model meqg-diamond-tiny-220M \
+  --budget.seconds 2.0 \
+  --tools python \
+  --prompt "Solve: (x+3)(x-2)=0. Show steps."
+```
+
+**Training (end‑to‑end sample command):**
+
+```bash
+diamond train \
+  --model fresh-tiny-220M \
+  --data.path ./data/multihop_synthetic \
+  --optim.lr 2e-4 --train.batch_size 256 \
+  --budget.seconds 1.0 --budget.max_flops 1e11 \
+  --obj.lambda_mod 0.5 --obj.lambda_geo.kv_bytes 1e-9 \
+  --null.alpha 0.1 --null.trust_radius 0.02 --null.l_mod 5.0
+```
+
+---
+
+## Checkpoints & Sizes
+
+> All checkpoints use the **same objective** and **gate**, differing only in backbone size and context window.
+
+| Name                      | Params | Context | dtype | Notes                  |
+| ------------------------- | ------ | ------- | ----: | ---------------------- |
+| `meqg-diamond-tiny-220M`  | 0.22B  | 8k      |  bf16 | Toy / fast prototyping |
+| `meqg-diamond-small-1.3B` | 1.3B   | 16k     |  bf16 | Research default       |
+| `meqg-diamond-base-7B`    | 7.0B   | 32k     |  bf16 | Full evaluation        |
+
+**Downloads:** see `assets/checkpoints/README.md`.
+**Tokenizer:** SentencePiece (Unigram), 32k vocab, byte‑fallback.
+**License:** Apache‑2.0 for code; model weights under `LICENSE-MODEL` (research use, see file).
+
+---
+
+## Architecture
+
+A **diamond** is a bounded optimization episode with a stateful planner and a **view‑projected working memory**.
+
+```
+Input → Embed → Backbone (Transformer)
+                 │
+                 ├─ Planner Head → qθ(z|x)  (latent programs/tool plans)
+                 │            │
+                 │            └─ Project-to-View ΠA q
+                 │
+                 ├─ Retrieval Policy ↔ Vector Store / Reranker
+                 │
+                 ├─ Tools (Python, search, code-runner, …) → Observations
+                 │
+                 └─ Ledger & Gate: compute Δ; run optimizer step; accept/reject
+Output ← Decoder ← Accepted step(s)
+```
+
+**Key components**
+
+* **Backbone:** standard decoder‑only Transformer with KV‑budget accounting.
+* **Planner head:** small module producing a compact **latent plan distribution** (q_\theta(z\mid x)) over action tokens (tool calls + reasoning sketches).
+* **View ((\Pi_A)):** projection family implementing a **slot‑factorized memory** (retrieved chunks occupy slots; cross‑slot couplings masked).
+* **Modal ledger:** measures *information discarded by the view* via a KL.
+* **Null‑stability gate:** Armijo descent + trust region + KL‑smoothness bound.
+
+---
+
+## Objective (precise math)
+
+We minimize a **single scalar** per episode:
 [
-\delta\big(S_\text{geo} + S_\text{ent} - S_\text{mod}\big)=0,
+\Delta ;=; S_{\text{geo}} ;+; S_{\text{ent}} ;+; \lambda_{\text{mod}}, S_{\text{mod}}
+\qquad \text{with } \lambda_{\text{mod}} > 0.
 ]
-with the **modal term defined canonically as a relative entropy** and subject to **null‑stability** (a convexity/monotonicity constraint). We adapt those ideas as *engineering principles* for machine reasoning, not as a claim about physics inside our software. 
 
----
+### Terms
 
-## What this repository provides
-
-* A **Causal‑Diamond Engine (CDE)** that runs reasoning in **nested, time‑bounded contexts**.
-* An explicit **Modal Ledger** that tracks *how much uncertainty we collapsed* to make each step.
-* A principled **Null‑Stability** update test that rejects brittle steps and prevents error cascades.
-* Pluggable **retrieval, planning, and tool‑use** modules that operate inside each diamond.
-* A research‑grade **trainer** that optimizes a **single objective** mirroring (\delta(S_\text{geo}+S_\text{ent}-S_\text{mod})=0).
-
----
-
-## Architecture at a glance
-
-```mermaid
-flowchart TD
-    U[User / Environment] -->|prompt, state| DIAMOND[Causal-Diamond Engine]
-    subgraph DIAMOND[Causal-Diamond Engine]
-        A[Geometric Channel\n(capacity & structure prior)] --- E[Extremizer]
-        B[Entanglement Channel\n(attention & evidence)] --- E
-        C[Modal Ledger\n(uncertainty & actualization)] --- E
-        E -->|candidate actions / hypotheses| POL[Policy & Tools]
-        E -->|update| MEM[Memory (Subalgebras/Views)]
-        E -->|stability check| STAB[Null-Stability]
-        STAB -->|accept/reject| E
-    end
-    POL -->|tool calls / API| Tools[(External Tools)]
-    POL -->|actions| U
-    MEM <--> RETR[Retriever (Vector/Graph DB)]
-```
-
-**Mapping of channels → software:**
-
-* **Geometric** → architecture priors (depth/width/buffers), compute cost regularizers, structural constraints.
-* **Entanglement** → attention, likelihood terms, gradient signals from observations/tools.
-* **Modal** → relative‑entropy–like penalty between *full latent state* and an *actualized subspace* (the “view” we commit to when deciding), i.e., an explicit *uncertainty/commitment ledger*.
-
-The **update rule** extremizes the sum of these contributions while enforcing a **null‑stability** condition (a monotonicity/convexity test across the diamond’s update trajectory). This mirrors the MEQG derivation where the modal piece tightens stability bounds. 
-
----
-
-## How the system works (step‑by‑step)
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant U as User/Env
-  participant CDE as Causal-Diamond Engine
-  participant RETR as Retriever
-  participant MEM as Memory (Views)
-  participant POL as Policy/Tools
-
-  U->>CDE: Input (prompt, state, sensors)
-  CDE->>RETR: Query memory / corpus for relevant context
-  RETR-->>CDE: Candidates
-  CDE->>MEM: Project to subalgebra (view) for current diamond
-  MEM-->>CDE: Actualized view (A_act)
-  CDE->>CDE: Solve argmin Δ = δ(S_geo + S_ent - S_mod)
-  CDE->>CDE: Null-Stability check (accept/reject)
-  alt accepted
-    CDE->>POL: Proposed action / tool-plan
-    POL-->>CDE: Results (observations)
-    CDE->>MEM: Commit delta + Modal Ledger entry
-    CDE->>U: Answer / Action / Next state
-  else rejected
-    CDE->>CDE: Backtrack / widen diamond / change view
-  end
-```
-
-**Key mechanics**
-
-* **Causal diamond** = a bounded compute/time context with fixed anchors (start/end, budget).
-* **Actualized subalgebra (view)** = the subset of features/variables we *commit to* for this step.
-* **Modal ledger** = a KL‑like term that measures information lost when projecting to the view.
-* **Null‑stability** = reject updates that increase a local instability functional (think “QFC/QNEC‑style” monotonicity), preserving robustness across steps. 
-
----
-
-## Why this likely improves on today’s LLMs
-
-1. **Principled uncertainty accounting.** The *Modal Ledger* is a first‑class citizen; every decisive step records how much ambiguity we collapsed, improving calibration and debuggability. 
-2. **Context as a controllable primitive.** Reasoning runs on **nested, bounded contexts** (diamonds), enabling explicit long‑horizon plans with local consistency checks (accept/reject at each boundary).
-3. **A single, testable objective.** Like the MEQG master law, one extremization governs behavior; no sprawling ad‑hoc losses. 
-4. **Stability by construction.** The **null‑stability** condition avoids brittle chains; the model doesn’t proceed if it can’t certify local convexity/improvement (reducing hallucinations/cascades). 
-5. **Retrieval as conditional expectation.** “Views” are **modular‑invariant projections**—retrieval becomes *project‑then‑reason*, not dump‑and‑hope; this keeps context compact and on‑target. 
-6. **Environmental selectivity.** The engine can express **compact spectral windows** (e.g., focus on “void‑like” sparse knowledge) to hunt for weak but decisive evidence without destabilizing the rest. 
-7. **Resource awareness.** The geometric term makes compute/memory part of the objective, enabling **graceful degradation** and **budget‑aware** planning.
-8. **Interpretable memory edits.** The ledger logs which chunks were projected/committed; this yields **explanations** for why a belief changed.
-9. **Falsifiable updates.** Every step either passes or fails a crisp stability test—easy to monitor in production.
-10. **Unification across modalities.** The same diamond/ledger machinery applies to text, code, tools, and sensors, helping close gaps on the path to **AGI‑level flexibility**.
-
----
-
-## Mathematical core (engineering view)
-
-* **Objective (per diamond (D))**
+* **Geometry / capacity penalty** (S_{\text{geo}})
+  Encodes budget usage and conditioning:
   [
-  \min_{\theta,,\text{view }A_\text{act}}\ \Delta(D) \equiv \delta S_\text{geo}(\theta, D) + \delta S_\text{ent}(\theta, D) - \delta S_\text{mod}(\theta, A_\text{act}; D)
+  S_{\text{geo}} = \lambda_{\text{flop}}, \mathrm{FLOPs}
+
+  * \lambda_{\text{kv}}, \text{KV_bytes}
+  * \lambda_{\text{lat}}, \text{tool_latency}
+  * \lambda_{\text{sparse}}, (1-\text{sparsity})
+  * \lambda_{\kappa}, \widehat{\kappa}
+    ]
+    where (\widehat{\kappa}) is a curvature/condition proxy if second‑order preconditioning is used.
+
+* **Evidence / data‑fit** (S_{\text{ent}})
+  Negative log‑likelihood and constraint terms:
+  [
+  S_{\text{ent}} =
+
+  * \mathbb{E}*{(x,y)}\big[\log p*\theta(y\mid x, \text{tools})\big]
+
+  - \lambda_{\text{cons}} \cdot \text{constraint_violation}
+    ]
+    Includes reranker scores / tool observation likelihoods when available.
+
+* **Modal penalty (ledger)** (S_{\text{mod}})
+  **Information discarded by the view**:
+  [
+  S_{\text{mod}} = D_{\mathrm{KL}}!\left(q_\theta(z\mid x); \Big|; \Pi_A, q_\theta(z\mid x)\right).
   ]
-  where:
+  This is convex in the second argument and has unbiased gradient estimators via samples from (q_\theta).
 
-  * (\delta S_\text{geo}) = capacity/structure regularizer (compute/latency/complexity curvature).
-  * (\delta S_\text{ent}) = data‑fit/attention (modular‑Hamiltonian‑like local likelihood/contrastive term).
-  * (\delta S_\text{mod}) = **relative‑entropy** between the full posterior and the **conditional expectation onto (A_\text{act})** (our actualized view). 
-* **Constraint (null‑stability):** second‑variation along the update direction is **non‑positive** (monotone), else reject and widen the view or adjust the step. 
-
-> *In MEQG, the modal term is defined canonically as a relative entropy on a modular‑invariant subalgebra; its convexity tightens stability (QFC/QNEC‑style). We use the same convexity to police learning/inference updates.* 
+> **Interpretation:** larger (S_{\text{mod}}) means a **riskier commitment** (more information lost by the working view). The penalty discourages destructive over‑collapse.
 
 ---
 
-## Component model
+## Null‑Stability (Acceptance Criteria)
 
-```mermaid
-classDiagram
-  class DiamondEngine {
-    +step(input, budget) : Outcome
-    -extremize() : CandidateUpdate
-    -stability_check(update) : bool
-    -project_to_view(state) : A_act
-  }
+A candidate update ((\theta_{t}!\to!\theta_{t+1}, A_t!\to!A_{t+1})) is **accepted** iff all hold:
 
-  class ModalLedger {
-    +kl_to_view(full, view) : float
-    +log_commit(update) : void
-    +audit(trace_id) : Report
-  }
+1. **Armijo monotone descent**
+   [
+   \Delta_{t+1} \le \Delta_{t} - \alpha ,|\nabla \Delta_t|_2^2
+   ]
+2. **Trust region**
+   [
+   |\theta_{t+1} - \theta_{t}|_2 \le r_t \quad (\text{adaptive } r_t)
+   ]
+3. **KL‑smoothness (ledger Lipschitz)**
+   [
+   \big|S_{\text{mod}}(t+1) - S_{\text{mod}}(t)\big|
+   \le L_{\text{mod}} \cdot |\theta_{t+1}-\theta_t|_2.
+   ]
 
-  class Memory {
-    +get_view(keys, policy) : A_act
-    +commit(delta, ledger) : void
-  }
+If any check fails: backtrack line search OR **widen the view** (A \leftarrow A \cup \delta A) (e.g., add slots/unmask heads) and retry.
 
-  class Retriever {
-    +search(query, k) : Chunks
-    +route(modality) : Provider
-  }
+**Default knobs (good starting points)**
 
-  class PolicyTools {
-    +plan(actions) : Trace
-    +invoke(tool, args) : Obs
-  }
-
-  DiamondEngine --> ModalLedger
-  DiamondEngine --> Memory
-  DiamondEngine --> Retriever
-  DiamondEngine --> PolicyTools
+```yaml
+null_stability:
+  alpha: 0.1          # Armijo slope fraction
+  trust_radius: 0.02  # L2 radius (per-layer adaptive)
+  l_mod: 5.0          # KL Lipschitz bound
+objective:
+  lambda_mod: 0.5
+  lambda_kv: 1.0e-9           # per-byte
+  lambda_flop: 5.0e-13        # per-FLOP
+  lambda_lat: 1.0e-3          # per-ms tool latency
+  lambda_sparse: 0.05
 ```
 
 ---
 
-## Repository structure (languages included)
+## Memory, Retrieval & Views
 
-```text
-realitys-ledger/
-├─ apps/
-│  ├─ cli/                         # (Rust)  Fast local runner, REPL driver
-│  └─ server/                      # (Rust)  gRPC/HTTP inference server
-├─ engine/
-│  ├─ diamond/                     # (Rust)  Causal-Diamond Engine core
-│  ├─ entanglement/                # (Rust)  Attention/evidence modules
-│  ├─ modal/                       # (Rust)  Modal Ledger (KL, views, convexity)
-│  ├─ geometry/                    # (Rust)  Capacity/compute priors, budgets
-│  ├─ stability/                   # (Rust)  Null-stability certificates & tests
-│  └─ bindings/
-│     ├─ python/                   # (Python) PyO3 bindings
-│     └─ cpp/                      # (C++)   Native embedding
-├─ memory/
-│  ├─ vector/                      # (Rust)  FAISS/HNSW wrappers via FFI
-│  ├─ graph/                       # (Rust)  Typed knowledge graph store
-│  └─ views/                       # (Rust)  Subalgebra (view) generators
-├─ retrievers/
-│  ├─ text/                        # (Rust)  BM25, hybrid, rerankers
-│  ├─ code/                        # (Rust)  AST-aware retrieval
-│  └─ multimodal/                  # (Rust)  Image/audio/sensor retrieval
-├─ tools/
-│  ├─ planner/                     # (Rust)  Tool-plan synthesis
-│  ├─ sandbox/                     # (Rust)  Safe tool execution
-│  └─ connectors/                  # (Rust)  External APIs
-├─ python/
-│  ├─ trainer/                     # (Python) Training loops, schedulers
-│  ├─ losses/                      # (Python) Δ objective terms (geo/ent/modal)
-│  ├─ datasets/                    # (Python) Task and synthetic curricula
-│  └─ notebooks/                   # (Python) Prototyping & ablations
-├─ cpp/
-│  └─ kernels/                     # (C++)   Custom ops (CUDA), fast KL, convexity
-├─ web/
-│  ├─ ui/                          # (TypeScript) Operator dashboard
-│  └─ docs-site/                   # (TypeScript) Static docs
-├─ ops/
-│  ├─ ci/                          # (YAML) CI pipelines, reproducibility checks
-│  ├─ deploy/                      # (Terraform/K8s) Deploy manifests
-│  └─ eval/                        # (Python) Bench & regression suites
-├─ docs/
-│  ├─ theory/                      # (Markdown) Conceptual mapping to MEQG
-│  ├─ design/                      # (Markdown) Design records & decisions
-│  └─ api/                         # (Markdown) Public API
-└─ LICENSE
+* **View family ((\Pi_A))**: slot‑factorized distributions over retrieved chunks; attention is limited within slots; cross‑slot attention heads can be masked or sparsified.
+* **Projection**: **I‑projection** (information projection) onto the view family; for exponential‑family parameterizations, moment matching yields (\Pi_A q).
+* **Retrieval policy**: BM25 → encoder → reranker; the view determines how many chunks (slots) are maintained and how they are coupled.
+* **Diagnostics**: log `view.size`, `collapse_pressure = S_mod / view.size`.
+
+---
+
+## Tool Use
+
+Tools are explicit actions with typed observations.
+
+```jsonc
+{
+  "action": "python.run",
+  "args": {"code": "import math; print(math.sqrt(2))"},
+  "observation_schema": {"stdout": "str", "stderr": "str", "time_ms": "int"}
+}
 ```
 
-**Tech choices**
-
-* **Rust** for the latency‑critical engine, safety, and FFI.
-* **Python** for training, experiments, and data pipelines.
-* **C++/CUDA** for performance‑critical kernels.
-* **TypeScript** for the operator UI and docs site.
-* **Terraform/K8s** for reproducible deployment.
+* **Latency** contributes to (S_{\text{geo}}).
+* **Observation likelihoods** (when available) contribute to (S_{\text{ent}}).
+* **Safety**: tools execute in a sandbox (FS/network policies configurable).
 
 ---
 
-## Training & evaluation
+## Evaluation
 
-```mermaid
-flowchart LR
-  CURR[Curriculum / Tasks] --> LOSS[Δ Objective\n(geo + ent - mod)]
-  OBS[Observations/Tools] --> LOSS
-  LOSS --> SOLVER[Optimizer]
-  SOLVER --> PARAMS[Model Params θ]
-  PARAMS --> ROLL[Rollouts in Diamonds]
-  ROLL --> METRICS[Stability, Calibration,\nTask reward, Tool success]
-  METRICS -->|early stop/anneal| SOLVER
+We focus on **reasoning stability** and **calibration** under fixed budgets.
+
+### Core metrics
+
+* **Cascade‑fail rate** (multi‑step tasks; lower is better).
+* **Calibration** (Brier score / ECE per step).
+* **Tool‑success rate** under latency budgets.
+* **Retrieval quality** (nDCG@k, exact support coverage).
+* **Acceptance rate** of the null‑stability gate and **backtrack count**.
+
+### “Kill‑numbers” (pre‑registered thresholds)
+
+* ≥ **10%** relative reduction in cascade‑fail vs. same backbone **without** ledger+gate (toy tasks, fixed FLOPs).
+* Calibration within **±5%** ECE on held‑out synthetic multi‑step curricula.
+* ≥ **15%** **tool‑success** improvement at tight budgets.
+
+> See `eval/benchmarks/` for scripts and dataset notes.
+
+---
+
+## Performance & Hardware
+
+* **Throughput** scales with accepted steps; the gate adds modest overhead (1–2 Hvps per accepted step if curvature checks are enabled).
+* **Mixed precision** (bf16/FP8) supported; **KV‑budget accounting** included in (S_{\text{geo}}).
+* **Latency knobs**: fewer step attempts per diamond; cheaper view families; anneal (\lambda_{\text{mod}}) with budget.
+
+---
+
+## Reproducibility
+
+* Fixed seeds for data shuffling, sampler, and planner temperature.
+* CI checks: monotone descent rate ≥ 0.9 on smoke tests; ledger variance within tolerance.
+* Determinism notes: fused kernels can introduce non‑determinism—toggle with `TORCH_USE_DETERMINISTIC_ALGORITHMS=1`.
+
+---
+
+## API Reference
+
+### Python
+
+```python
+from diamond.runtime import DiamondEngine, Budget
+
+engine = DiamondEngine.from_pretrained("meqg-diamond-small-1.3B")
+out = engine.run(
+    prompt="Plan a 3-step troubleshooting process for a flaky unit test.",
+    tools=[],
+    budget=Budget(seconds=1.5, max_flops=2e12),
+    config=dict(obj=dict(lambda_mod=0.4))
+)
+print(out.text)
+print(out.telemetry["gate"])   # {"accepted": true, "retries": 1, ...}
 ```
 
-* **Loss:**
-  (\mathcal{L} = \mathbb{E}*D\big[\delta S*\text{geo} + \delta S_\text{ent} - \delta S_\text{mod}\big] + \lambda \cdot \text{penalty}(\text{violations of null‑stability}))
-  where (\delta S_\text{mod}) is a **KL‑style** deviation between the full posterior and the *actualized* view (conditional expectation). 
-* **Stability audit:** every rollout logs **convexity certificates**; violations are treated as defects.
-* **Metrics:** reasoning depth before failure, calibration curves, tool‑success under long‑horizon plans, and **ledger efficiency** (useful commitments per bit of collapsed uncertainty).
+### HTTP (gRPC/REST)
 
----
-
-## Interactions with tools and memory
-
-* **Views as “subalgebras.”** Memory returns a *view* that is invariant under the model’s current “modular flow” (i.e., insensitive to irrelevant detail at this step), echoing the MEQG **conditional expectation** construction. 
-* **Selective “windows.”** The engine can use **compact windows** to highlight sparse but decisive evidence (e.g., in code‑search or rare‑event diagnostics) without globally changing attention. 
-
----
-
-## Safety & robustness by design
-
-```mermaid
-stateDiagram-v2
-  [*] --> Propose
-  Propose --> Check
-  Check --> Commit: pass
-  Check --> Widen: fail
-  Widen --> Propose
-  Commit --> [*]
-
-  note right of Check
-    Null-Stability:
-    - Convexity of modal term
-    - Monotone Δ along step
-    - Budget & curvature bounds
-  end note
+```
+POST /v1/diamond/run
+{
+  "model": "meqg-diamond-small-1.3B",
+  "prompt": "...",
+  "budget": {"seconds": 1.5, "max_flops": 2e12, "max_kv_bytes": 134217728},
+  "tools": ["python"],
+  "config": {"obj": {"lambda_mod": 0.4}}
+}
 ```
 
-* **Reject brittle steps**: if the update fails null‑stability (non‑monotone Δ or failing curvature/budget bounds), the engine widens the view or backtracks.
-* **Auditable ledger**: each commit includes *why* we collapsed uncertainty and *how much*; operators can inspect or roll back.
+**Response (truncated)**
+
+```json
+{
+  "text": "…",
+  "telemetry": {
+    "objective": {"Delta": 1.284, "S_geo": 0.192, "S_ent": 0.955, "S_mod": 0.275},
+    "gate": {"accepted": true, "armijo": true, "trust": true, "kl_smooth": true,
+             "retries": 1, "view_size": 6, "collapse_pressure": 0.046}
+  }
+}
+```
 
 ---
 
-## Quick start (research)
+## Safety, Limitations & Intended Use
 
-1. **Build engine & server**
+**Intended use:** research on **reasoning stability**, **auditable uncertainty**, and **tool‑augmented retrieval**.
+**Non‑goals:** chasing SOTA on raw next‑token perplexity or short single‑hop QA.
 
-   ```bash
-   cargo build -p server
-   ```
-2. **Python bindings**
+**Known failure modes**
 
-   ```bash
-   maturin develop -m engine/bindings/python/Cargo.toml
-   ```
-3. **Run a toy curriculum**
+* Over‑regularization when (\lambda_{\text{mod}}) is too high → under‑commitment and stalled plans.
+* Ledger estimator noise for high‑dimensional (q_\theta).
+* Latency spikes if curvature checks are enabled at every micro‑step.
 
-   ```bash
-   python -m python.trainer.run --task=tool_reasoning --budget=2.0
-   ```
+**Mitigations**
 
----
-
-## Roadmap & falsifiable milestones
-
-* **R1**: Beat strong LLM baselines on *multi‑step tool use* with fewer error cascades at fixed budget (**stability advantage**).
-* **R2**: Demonstrate **ledger calibration**: uncertainty bids predict actual error rates within ±5% across tasks.
-* **R3**: **Ablation** shows removing the modal term or the null‑stability gate degrades long‑horizon success ≥10%.
-* **R4**: **Memory edits** are interpretable via ledger diffs and reproducibly improve downstream performance.
-
-These are the software analogs of the “kill‑numbers” ethos—set crisp, pre‑registered thresholds and publish the result either way. 
+* **Budget‑aware (\lambda_{\text{mod}})** (anneal up with wider views).
+* Low‑variance KL estimators (control variates) and compact planner vocabularies.
+* Adaptive gate frequency (e.g., check every k steps) and cheap Hvps.
 
 ---
 
-## Notes on provenance
+## Project Layout
 
-This project’s **design principles** draw on the MEQG blueprint in which a **single variational statement on causal diamonds** balances geometric, entanglement, and **modal (relative‑entropy)** contributions and enforces **null‑stability** (QFC/QNEC‑style). We **translate** those ideas into machine reasoning objectives, memory projections (“subalgebras/views”), and stability gates; the physics text provides **conceptual justification** for the pieces but we claim **software‑engineering value**, not a physical theory, inside this repository. 
-
-
-## Citation
-
-If you use this repository in research, please cite this README and the MEQG source that motivates the diamond/ledger/stability structure. The canonical MEQG presentation of the master law, modal relative entropy, conditional expectations, and null‑stability can be found in *Reality’s Ledger: An Introduction to Modal Emergent Quantum Gravity*. 
-
-> *“Extremize A/4Gℏ + S_ent − S_mod on diamonds and enforce null‑stability… In the small‑diamond limit this yields local balance; the modal piece, defined as a (negative) relative entropy, tightens the stability bounds.”* 
+```
+.
+├── diamond/
+│   ├── runtime/               # Engine, budgets, gate
+│   ├── model/                 # Backbone, planner head, view family
+│   ├── objective/             # S_geo, S_ent, S_mod implementations
+│   ├── tools/                 # python sandbox, search stub, schemas
+│   ├── retrieval/             # policy, rerankers, stores
+│   ├── telemetry/             # logging, dashboards, exporters
+│   └── api/                   # HTTP/gRPC server
+├── eval/                      # benchmarks, reports
+├── scripts/                   # train/run helpers
+├── assets/checkpoints/        # (links + hashes)
+├── docs/
+│   ├── theory/                # MEQG deep dive, proofs, derivations
+│   ├── diagrams/              # architecture figures
+│   └── api/                   # auto-generated reference
+└── LICENSE, LICENSE-MODEL, README.md
+```
 
 ---
 
-*End of README.*
+## Roadmap & Milestones
 
+**Phase 0 — Minimal viable diamond (4–6 weeks)**
 
-Medical References:
-1. None — DOI: file-Fuy6gZtozJ38EderqRGrr7
+* 150–350M backbone + planner head; ledger with **slot‑factorized view**; full gate.
+* **Target:** Hotpot‑style multi‑hop + toy tool tasks.
+* **Kill‑number:** ≥10% cascade‑fail reduction vs. baseline at fixed FLOPs.
+
+**Phase 1 — Memory, tools, curriculum (6–10 weeks)**
+
+* Views: factorized → **structured** (dependency graphs / AST views).
+* Tools: add web‑search stub + robust Python sandbox.
+* Curriculum: synthetic long‑horizon; track per‑step ECE/Brier.
+* **Kill‑number:** calibration within ±5%; ≥15% tool‑success improvement.
+
+**Phase 2 — Scale & ablations (8–12 weeks)**
+
+* Scale to 1–7B; mixed precision; KV accounting in (S_{\text{geo}}).
+* Ablations: **no ledger**, **no gate**, **sign flip**.
+* **Kill‑number:** monotone win curves on long‑horizon tasks.
+
+**Phase 3 — Foundation release**
+
+* Model card, API, **ledger audit dashboards**, and stability traces.
+
+A more detailed plan lives in `docs/roadmap.md`.
+
+---
+
+## Citations & Background
+
+* **Information Bottleneck / Free‑Energy**: compression vs. reward framing.
+* **Trust‑Region & Line‑Search**: TRPO, Armijo/Goldstein conditions.
+* **Tool‑augmented LLMs**: ReAct, ToT, planner‑executor patterns.
+
+The **novelty here** is the **auditable, local modal penalty** with an explicit **accept/reject gate** that blocks brittle updates *before* they propagate. See `docs/theory/` for derivations and proofs sketch.
+
+---
+
+## Status
+
+This repository is a **research preview**. Expect API churn around view parameterizations and telemetry schemas. Objective and gate semantics are stable:
+[
+\Delta = S_{\text{geo}} + S_{\text{ent}} + \lambda_{\text{mod}} S_{\text{mod}}, \quad \lambda_{\text{mod}}>0
+]
+with the **Null‑Stability Gate** defined exactly as in this README.
+
+---
+
+## License
+
+* **Code:** Apache‑2.0 (`LICENSE`)
+* **Weights:** Research use license (`LICENSE-MODEL`) with attribution. See file for terms.
+
+---
+
+### Appendix A — Pseudocode (reference)
+
+```python
+def diamond_step(state, budget, cfg):
+    A = build_view(state)                 # choose subalgebra/features
+    q = propose_latent(state)             # distribution over plans/hypotheses
+    qA = project_to_view(q, A)            # information projection Π_A q
+
+    S_geo = geometry_penalty(state, budget, cfg)
+    S_ent = evidence_term(state, q, cfg)
+    S_mod = kl_divergence(q, qA)          # modal ledger
+
+    Delta = S_geo + S_ent + cfg.lambda_mod * S_mod
+
+    theta_new, A_new, meta = optimizer_step(Delta, state.params, A, cfg)
+
+    # ---- Null-stability checks ----
+    monotone = meta["Delta_new"] <= meta["Delta"] - cfg.alpha * meta["grad_norm"]**2
+    trust_ok = meta["step_norm"] <= meta["trust_radius"]
+    kl_smooth = abs(meta["S_mod_new"] - S_mod) <= cfg.l_mod * meta["step_norm"]
+
+    if monotone and trust_ok and kl_smooth:
+        commit(theta_new, A_new)
+        ledger.log(S_mod_new=meta["S_mod_new"],
+                   view_size=A_new.size, budget=budget, extras=meta)
+        return "ACCEPT"
+    else:
+        widen_view_or_backtrack(state, A, meta)
+        return "RETRY"
+```
+
+### Appendix B — Telemetry (sample)
+
+```json
+{
+  "ts": "2025-03-20T19:10:47Z",
+  "run_id": "dmd-3f2a",
+  "objective": {"Delta": 1.284, "S_geo": 0.192, "S_ent": 0.955, "S_mod": 0.275},
+  "gate": {"accepted": true, "armijo": true, "trust": true, "kl_smooth": true,
+           "retries": 1, "view_size": 6, "collapse_pressure": 0.046},
+  "budget": {"seconds": 2.0, "max_flops": 3e11, "max_kv_bytes": 134217728}
+}
+```
+
+---
+
+If you’d like, I can also generate the companion docs skeletons (`docs/theory/`, `docs/roadmap.md`, and `assets/checkpoints/README.md`) to match this README.
