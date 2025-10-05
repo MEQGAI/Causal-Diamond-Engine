@@ -48,19 +48,19 @@ flowchart LR
   end
 
   subgraph DCO[Diamond Orchestrator]
-    F --> B[Boundary Manager<br/>(S_geo)]
-    F --> G[Info-Gain Estimator<br/>(S_ent)]
+    F --> B[Boundary Manager (S_geo)]
+    F --> G[Info-Gain Estimator (S_ent)]
     F --> H[Plan Proposer (policy / LM head)]
-    H --> CEX[Conditional Expectation E<br/>(modular projection)]
+    H --> CEX[Conditional Expectation E (modular projection)]
     H -->|proposal p| L[(Modal Ledger)]
     CEX -->|E[p]| L
-    L -->|S_mod = D_KL(p||E[p])| D[Local Optimizer<br/>(δS=0)]
+    L -->|S_mod = D_KL(p ∥ E[p])| D[Local Optimizer (δS = 0)]
     B --> D
     G --> D
   end
 
   subgraph SAF[Stability & Guardrails]
-    D --> Q[Null-Stability Check<br/>(Hessian / influence)]
+    D --> Q[Null-Stability Check (Hessian / influence)]
     Q -->|pass| OUT[Emit Action / Tokens]
     Q -. fail .-> B2[Reduce boundary / soften commit / escalate]
   end
@@ -94,7 +94,7 @@ sequenceDiagram
   LM-->>Orchestrator: p(proposed tokens/actions)
   Orchestrator->>E: project to E[p] (modular / invariant subspace)
   E-->>Orchestrator: E[p]
-  Orchestrator->>Ledger: update S_mod = D_KL(p||E[p])
+  Orchestrator->>Ledger: update S_mod = D_KL(p ∥ E[p])
   Orchestrator->>Orchestrator: compute S_geo, S_ent
   Orchestrator->>Orchestrator: solve δ(S_geo+S_ent−S_mod)=0
   Orchestrator->>Guard: null‑stability (Hessian/attribution)
@@ -185,13 +185,13 @@ flowchart TD
   R1 --> LM[LM / Policy Finetune]
   LM --> H1[Horizon Head (k-step)]
   H1 --> O1[Compute S_ent]
-  LM --> E1[Build E (schema/modular)]
-  E1 --> O2[Compute S_mod = KL(p||E[p])]
+  LM --> E1[Build E (schema / modular)]
+  E1 --> O2[Compute S_mod = KL(p ∥ E[p])]
   P1 --> O3[Boundary signals for S_geo]
   O1 --> J[Joint Loss]
   O2 --> J
   O3 --> J
-  J --> OPT[Update (AdamW/Prox)]
+  J --> OPT[Update (AdamW / Prox)]
 ```
 
 **Joint loss (teacher‑forced, train‑time):**
@@ -256,9 +256,9 @@ for step in 1..T:
 flowchart TD
   S0[Start step] --> S1[Build context window]
   S1 --> S2[Propose plan p]
-  S2 --> S3[Project E[p]]
+  S2 --> S3[Project E(p)]
   S3 --> S4[Score S_geo, S_ent, S_mod]
-  S4 --> S5[Extremize δS=0 (prox step)]
+  S4 --> S5[Extremize δS = 0 (prox step)]
   S5 --> S6{Null-stability pass?}
   S6 -- Yes --> S7[Emit & log to ledger]
   S6 -- No --> S8[Reduce boundary / soften / escalate] --> S2
