@@ -10,10 +10,12 @@ use crate::{
     entanglement::{self, StateSlice},
     errors::{EngineError, Result},
     geometry::{self, Diamond, GeometryOutcome},
+    io::simple::StoredBatch,
     modal::{self, ModalOutcome, ModalState},
     stability::{self, StabilityOutcome},
     telemetry,
 };
+use serde_json::Value;
 
 /// Bundle of state information for a diamond.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -62,7 +64,7 @@ impl EngineReport {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct JobHandle(Uuid);
 
-pub trait CausalDiamondEngine {
+pub trait EngineRuntime {
     fn prepare(&mut self, cfg: EngineConfig) -> Result<()>;
     fn submit(&self, batch: DiamondBatch) -> Result<JobHandle>;
     fn join(&self, handle: JobHandle) -> Result<EngineReport>;
@@ -137,7 +139,7 @@ impl Engine {
     }
 }
 
-impl CausalDiamondEngine for Engine {
+impl EngineRuntime for Engine {
     fn prepare(&mut self, cfg: EngineConfig) -> Result<()> {
         if let Concurrency::Rayon { workers } = cfg.concurrency {
             let pool = rayon::ThreadPoolBuilder::new()
@@ -179,5 +181,138 @@ impl CausalDiamondEngine for Engine {
         self.pool = None;
         self.jobs.lock().clear();
         Ok(())
+    }
+}
+
+/// High-level handle exposed to external callers (CLI, Python bindings).
+pub struct CausalDiamondEngine {
+    inner: Engine,
+    cfg: EngineConfig,
+    prepared: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        entanglement::StateSlice,
+        geometry::make_small_diamond,
+        modal::ModalState,
+    };
+    use std::collections::HashMap;
+
+    #[test]
+    fn step_evaluates_serialised_batch() {
+        let diamond = make_small_diamond(7, 1.0, 0.05);
+        let mut ent = HashMap::new();
+        ent.insert(diamond.id, StateSlice::default());
+        let mut modal = HashMap::new();
+        modal.insert(diamond.id, ModalState::default());
+        let stored = StoredBatch {
+            diamonds: vec![diamond],
+            entanglement: ent,
+            modal,
+        };
+        let payload = serde_json::to_string(&stored).unwrap();
+        let mut engine = CausalDiamondEngine::new();
+        let summary = engine.step(&payload, 1.0).expect("engine step to succeed");
+        assert!(summary.contains("diamonds=1"), "summary missing diamonds count: {summary}");
+    }
+
+    #[test]
+    fn step_records_telemetry_payload() {
+        let payload = serde_json::json!({
+            "step": 1,
+            "delta": 0.5,
+            "loss_mod": 0.1
+        })
+        .to_string();
+        let mut engine = CausalDiamondEngine::new();
+        let summary = engine.step(&payload, 0.75).expect("telemetry step");
+        assert_eq!(summary, "ack");
+    }
+}
+
+impl Default for CausalDiamondEngine {
+    fn default() -> Self {
+        Self {
+            inner: Engine::new(),
+            cfg: EngineConfig::default(),
+            prepared: false,
+        }
+    }
+}
+
+impl CausalDiamondEngine {
+    /// Construct a new engine handle with default configuration.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Construct with a specific configuration.
+    pub fn with_config(cfg: EngineConfig) -> Self {
+        Self {
+            cfg,
+            ..Self::default()
+        }
+    }
+
+    /// Update configuration and force a re-prepare on next use.
+    pub fn configure(&mut self, cfg: EngineConfig) {
+        self.cfg = cfg;
+        self.prepared = false;
+    }
+
+    fn ensure_prepared(&mut self) -> Result<()> {
+        if !self.prepared {
+            self.inner.prepare(self.cfg.clone())?;
+            self.prepared = true;
+        }
+        Ok(())
+    }
+
+    /// Submit a batch and return the evaluated report.
+    pub fn evaluate_batch(&mut self, batch: DiamondBatch) -> Result<EngineReport> {
+        self.ensure_prepared()?;
+        let handle = self.inner.submit(batch)?;
+        self.inner.join(handle)
+    }
+
+    /// Convenience step: accepts either a serialized diamond batch or a
+    /// telemetry payload and returns a short status string.
+    pub fn step(&mut self, payload: &str, budget: f32) -> Result<String> {
+        if let Ok(stored) = serde_json::from_str::<StoredBatch>(payload) {
+            let batch: DiamondBatch = stored.into();
+            let report = self.evaluate_batch(batch)?;
+            Ok(format!("budget={budget:.2}, {}", report.summary()))
+        } else {
+            self.record_telemetry(payload, budget);
+            Ok("ack".to_string())
+        }
+    }
+
+    fn record_telemetry(&self, payload: &str, budget: f32) {
+        if let Ok(value) = serde_json::from_str::<Value>(payload) {
+            if let Some(delta) = value
+                .get("delta")
+                .and_then(|v| v.as_f64())
+            {
+                metrics::gauge!("engine.ledger.delta", delta);
+            }
+            if let Some(loss_mod) = value
+                .get("loss_mod")
+                .and_then(|v| v.as_f64())
+            {
+                metrics::gauge!("engine.ledger.loss_mod", loss_mod);
+            }
+            if let Some(step) = value
+                .get("step")
+                .and_then(|v| v.as_i64())
+            {
+                metrics::counter!("engine.ledger.steps", 1, "step" => step.to_string());
+            }
+        }
+        metrics::gauge!("engine.ledger.budget", budget as f64);
+        tracing::debug!(target = "engine", payload, %budget, "ingested telemetry payload");
     }
 }
