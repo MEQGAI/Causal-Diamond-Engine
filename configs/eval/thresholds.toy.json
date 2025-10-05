@@ -1,0 +1,6 @@
+{
+  "perplexity_max": 100.0,
+  "cascade_fail_max": 0.5,
+  "planner_ece_max": 0.3,
+  "json_exact_min": 0.5
+}

@@ -31,10 +31,13 @@ run_server:
 	uvicorn serving.python.src.app:app --reload
 
 train:
-	$(PYTHON) -m fm_train.cli fit --config configs/train/pretrain_v0.yaml --steps 100
+	$(PYTHON) -m fm_train.trainer.run --config configs/train/pretrain_v1.yaml --steps 1000 --resume auto
+
+train-toy:
+	$(PYTHON) -m fm_train.trainer.run --config configs/train/toy_local.yaml --steps 50 --resume never --evaluate --thresholds configs/eval/thresholds.toy.json
 
 eval:
-	$(PYTHON) -m fm_eval.runner --config configs/eval/kill_numbers.yaml
+	$(PYTHON) -m fm_eval.runner --thresholds configs/eval/thresholds.toy.json --model ckpts/exp-pretrain-v1
 
 docker_build:
 	docker build -f Dockerfile -t foundation/workspace:latest .

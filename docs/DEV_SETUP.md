@@ -37,7 +37,9 @@ This guide describes how to prepare a workstation for Reality's Ledger.
 - Runtime dependencies: `requirements.txt`
 - Tooling dependencies: `requirements-dev.txt`
 - Entry point: `python -m python.trainer.run --task=tool_reasoning --budget=2.0`
-- Launch full run + eval: `python -m fm_train.trainer.run --config configs/train/toy_local.yaml --steps 100 --resume never --evaluate`
+- Launch toy run + eval: `make train-toy`
+- Full run (resume-aware): `make train`
+- Scripted run: `./scripts/train_and_eval.sh --config configs/train/toy_local.yaml --steps 50 --thresholds configs/eval/thresholds.toy.json`
 - Integration smoke tests:
   - Python path: `pytest tests/integration/test_training_flow.py`
   - Serving API: `pytest tests/integration/test_serving.py`
