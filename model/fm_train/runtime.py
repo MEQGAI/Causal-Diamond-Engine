@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 
@@ -15,7 +15,7 @@ from fm_core.projection import SlotLayout, make_view_mask
 from fm_core.transformer import FoundationModel
 from fm_data.catalog import Catalog, load_catalog
 from fm_data.packing import DiamondPacker, PackedSequence
-from fm_data.webdataset_stream import WebDatasetStream
+from fm_train.datasets.catalog import load_source
 
 from .config import TrainConfig, load_train_config
 from .gate import GateMetrics, NullStabilityGate
@@ -64,22 +64,20 @@ class MixtureIterableDataset(IterableDataset):
 
     def _sample_text(self, dataset_id: str) -> str:
         cfg = self.dataset_lookup[dataset_id]
-        stream = WebDatasetStream(cfg, shuffle=True)
-        for sample in stream:
-            sources = [".txt", ".text", ".code", "txt", "text", "code"]
-            for key in sources:
-                if key in sample.data:
-                    blob = sample.data[key]
-                    if isinstance(blob, bytes):
-                        text = blob.decode("utf-8", errors="ignore")
-                    else:
-                        text = str(blob)
-                    if text.strip():
-                        return text
-            if "text" in sample.meta:
-                text = str(sample.meta["text"])
-                if text.strip():
-                    return text
+        entry = asdict(cfg)
+        entry.setdefault("type", entry.get("format", "webdataset"))
+        try:
+            source_iter = load_source(entry, split="train")
+        except Exception as err:
+            raise RuntimeError(
+                f"failed to load dataset '{dataset_id}': {err}"
+            ) from err
+
+        for sample in source_iter:
+            text = sample.text.strip()
+            if text:
+                return text
+
         raise RuntimeError(
             f"dataset {dataset_id} yielded no valid samples; ensure shards are accessible"
         )
@@ -277,9 +275,8 @@ class Trainer:
                     delta_after=losses["loss_total"].item(),
                     grad_norm=grad_norm,
                     step_norm=step_norm,
-                    kl_change=abs(
-                        losses["loss_mod"].item() - self.state.loss_mod_previous
-                    ),
+                    kl_before=self.state.loss_mod_previous,
+                    kl_after=losses["loss_mod"].item(),
                 )
                 decision = self.gate.evaluate(metrics)
                 self.state.delta_previous = losses["loss_total"].item()
