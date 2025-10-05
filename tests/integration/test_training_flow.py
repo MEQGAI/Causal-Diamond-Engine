@@ -35,9 +35,9 @@ def test_toy_training_emits_ledger(tmp_path):
 
 def test_py_engine_binding_available():
     module = pytest.importorskip(
-        "ledger_python",
+        "engine_py",
         reason="PyO3 bindings not built; run maturin develop to enable",
     )
     engine = module.PyCausalDiamondEngine()
-    result = engine.step("{\"step\": 1, \"delta\": 0.1}", 1.0)
+    result = engine.step('{"step": 1, "delta": 0.1}', 1.0)
     assert result == "ack"

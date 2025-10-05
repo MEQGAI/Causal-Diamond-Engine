@@ -80,7 +80,9 @@ def make_view_mask(
         mask[idx, 0, :, allowed] = 0.0
 
     # Apply causal structure: no attention to future positions.
-    causal = torch.triu(torch.ones((seq_len, seq_len), device=device, dtype=torch.bool), 1)
+    causal = torch.triu(
+        torch.ones((seq_len, seq_len), device=device, dtype=torch.bool), 1
+    )
     mask[:, :, causal] = float("-inf")
     return mask
 

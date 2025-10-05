@@ -6,7 +6,7 @@ import importlib
 from types import ModuleType
 from typing import Any
 
-_NATIVE_MODULE = "ledger_python"
+_NATIVE_MODULE = "engine_py"
 
 try:  # pragma: no cover - optional native extension
     _binding: ModuleType | None = importlib.import_module(_NATIVE_MODULE)

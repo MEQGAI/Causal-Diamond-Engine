@@ -94,9 +94,8 @@ def compute_modal_penalty(
     if weight_sum_raw.item() > 0:
         planner_loss = (weights * kl_planner).sum() / total_weight
         planner_mean = (
-            (kl_planner * plan_mask.float()).sum()
-            / plan_mask.float().sum().clamp_min(1.0)
-        )
+            kl_planner * plan_mask.float()
+        ).sum() / plan_mask.float().sum().clamp_min(1.0)
 
     planner_loss = planner_loss * lambda_planner
 

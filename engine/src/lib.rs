@@ -17,7 +17,9 @@ pub use config::{
     Concurrency, EngineConfig, Features, IoConfig, Precision, StabilityConfig, TensorBackend,
 };
 pub use errors::EngineError;
-pub use runtime::{CausalDiamondEngine, DiamondBatch, Engine, EngineReport, EngineRuntime, JobHandle};
+pub use runtime::{
+    CausalDiamondEngine, DiamondBatch, Engine, EngineReport, EngineRuntime, JobHandle,
+};
 
 /// Emit a textual banner used by CLI integrations and smoke tests.
 pub fn banner() -> String {

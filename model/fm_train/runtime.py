@@ -196,9 +196,7 @@ class Trainer:
                 planner_tensor = planner_tensor.bool()
             planner_mask = planner_tensor if planner_tensor.any() else None
             with autocast(self.cfg.precision):
-                outputs = self.model(
-                    input_ids, planner_mask=planner_mask
-                )
+                outputs = self.model(input_ids, planner_mask=planner_mask)
 
                 modal_inputs = None
                 apply_modal = (
@@ -228,16 +226,14 @@ class Trainer:
                         "token_spans" in self.modal_cfg.apply_on
                         and self.modal_cfg.lambda_token > 0.0
                     )
-                    plan_span_mask = (
-                        planner_tensor if apply_token else None
-                    )
+                    plan_span_mask = planner_tensor if apply_token else None
                     modal_inputs = {
                         "planner_logits": outputs["planner"].logits,
                         "planner_logits_view": outputs_view["planner"].logits,
                         "token_logits": outputs["logits"] if apply_token else None,
-                        "token_logits_view": outputs_view["logits"]
-                        if apply_token
-                        else None,
+                        "token_logits_view": (
+                            outputs_view["logits"] if apply_token else None
+                        ),
                         "plan_pos_mask": planner_tensor,
                         "plan_span_mask": plan_span_mask,
                         "slot_len": self.modal_cfg.slot_len,
@@ -309,9 +305,7 @@ class Trainer:
         batch = input_ids.size(0)
         device = input_ids.device
         default_center = self.slot_layout.slots_per_seq // 2
-        centers = torch.full(
-            (batch,), default_center, device=device, dtype=torch.long
-        )
+        centers = torch.full((batch,), default_center, device=device, dtype=torch.long)
         if self.special_ids is None:
             return centers
         view_start = getattr(self.special_ids, "view_start", None)

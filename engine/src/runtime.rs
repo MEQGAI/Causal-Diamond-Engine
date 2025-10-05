@@ -64,6 +64,20 @@ impl EngineReport {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct JobHandle(Uuid);
 
+impl JobHandle {
+    pub fn to_string(&self) -> String {
+        self.0.to_string()
+    }
+}
+
+impl std::str::FromStr for JobHandle {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(Uuid::parse_str(s)?))
+    }
+}
+
 pub trait EngineRuntime {
     fn prepare(&mut self, cfg: EngineConfig) -> Result<()>;
     fn submit(&self, batch: DiamondBatch) -> Result<JobHandle>;
@@ -194,11 +208,7 @@ pub struct CausalDiamondEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        entanglement::StateSlice,
-        geometry::make_small_diamond,
-        modal::ModalState,
-    };
+    use crate::{entanglement::StateSlice, geometry::make_small_diamond, modal::ModalState};
     use std::collections::HashMap;
 
     #[test]
@@ -216,7 +226,10 @@ mod tests {
         let payload = serde_json::to_string(&stored).unwrap();
         let mut engine = CausalDiamondEngine::new();
         let summary = engine.step(&payload, 1.0).expect("engine step to succeed");
-        assert!(summary.contains("diamonds=1"), "summary missing diamonds count: {summary}");
+        assert!(
+            summary.contains("diamonds=1"),
+            "summary missing diamonds count: {summary}"
+        );
     }
 
     #[test]
@@ -257,6 +270,11 @@ impl CausalDiamondEngine {
         }
     }
 
+    /// Explicitly prepare the internal engine with the current configuration.
+    pub fn prepare(&mut self) -> Result<()> {
+        self.ensure_prepared()
+    }
+
     /// Update configuration and force a re-prepare on next use.
     pub fn configure(&mut self, cfg: EngineConfig) {
         self.cfg = cfg;
@@ -278,6 +296,29 @@ impl CausalDiamondEngine {
         self.inner.join(handle)
     }
 
+    /// Submit a batch asynchronously, returning a job handle.
+    pub fn submit_batch(&mut self, batch: DiamondBatch) -> Result<JobHandle> {
+        self.ensure_prepared()?;
+        self.inner.submit(batch)
+    }
+
+    /// Join a previously submitted job.
+    pub fn join(&self, handle: JobHandle) -> Result<EngineReport> {
+        self.inner.join(handle)
+    }
+
+    /// Shut down the engine, clearing any cached state.
+    pub fn shutdown(&mut self) -> Result<()> {
+        self.inner.shutdown()?;
+        self.prepared = false;
+        Ok(())
+    }
+
+    /// Return the crate version string.
+    pub fn version() -> &'static str {
+        env!("CARGO_PKG_VERSION")
+    }
+
     /// Convenience step: accepts either a serialized diamond batch or a
     /// telemetry payload and returns a short status string.
     pub fn step(&mut self, payload: &str, budget: f32) -> Result<String> {
@@ -293,22 +334,13 @@ impl CausalDiamondEngine {
 
     fn record_telemetry(&self, payload: &str, budget: f32) {
         if let Ok(value) = serde_json::from_str::<Value>(payload) {
-            if let Some(delta) = value
-                .get("delta")
-                .and_then(|v| v.as_f64())
-            {
+            if let Some(delta) = value.get("delta").and_then(|v| v.as_f64()) {
                 metrics::gauge!("engine.ledger.delta", delta);
             }
-            if let Some(loss_mod) = value
-                .get("loss_mod")
-                .and_then(|v| v.as_f64())
-            {
+            if let Some(loss_mod) = value.get("loss_mod").and_then(|v| v.as_f64()) {
                 metrics::gauge!("engine.ledger.loss_mod", loss_mod);
             }
-            if let Some(step) = value
-                .get("step")
-                .and_then(|v| v.as_i64())
-            {
+            if let Some(step) = value.get("step").and_then(|v| v.as_i64()) {
                 metrics::counter!("engine.ledger.steps", 1, "step" => step.to_string());
             }
         }

@@ -8,12 +8,13 @@ license = "MIT"
 repository = "https://github.com/realitysledger/causal-diamond-engine"
 
 [lib]
-name = "ledger_python"
+name = "engine_py"
 crate-type = ["cdylib"]
 
 [dependencies]
 engine = { path = "../../engine" }
 pyo3 = { version = "0.20", features = ["extension-module", "abi3-py311"] }
+numpy = "0.20"
 
 [build-dependencies]
 pyo3-build-config = "0.20"

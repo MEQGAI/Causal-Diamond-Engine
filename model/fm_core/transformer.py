@@ -98,7 +98,9 @@ class MultiHeadAttention(nn.Module):
         # apply RoPE by flattening the head dimension so the helper sees
         # tensors shaped (batch, seq_len, head_dim)
         q = q.permute(0, 2, 1, 3).reshape(batch * self.n_heads, seq_len, self.head_dim)
-        k = k.permute(0, 2, 1, 3).reshape(batch * self.n_kv_heads, seq_len, self.head_dim)
+        k = k.permute(0, 2, 1, 3).reshape(
+            batch * self.n_kv_heads, seq_len, self.head_dim
+        )
 
         q = apply_rope(q, self.rope_cos, self.rope_sin)
         k = apply_rope(k, self.rope_cos, self.rope_sin)

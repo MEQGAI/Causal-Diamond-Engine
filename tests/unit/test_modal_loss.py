@@ -9,7 +9,9 @@ def test_make_view_mask_shapes_and_causality():
     seq_len = 8
     slot_len = 2
     centers = torch.tensor([1, 2])
-    mask = make_view_mask(batch, seq_len, slot_len, centers, window=1, device=torch.device("cpu"))
+    mask = make_view_mask(
+        batch, seq_len, slot_len, centers, window=1, device=torch.device("cpu")
+    )
     assert mask.shape == (batch, 1, seq_len, seq_len)
     # Future positions should be masked
     assert torch.isinf(mask[0, 0, 0, 1])
