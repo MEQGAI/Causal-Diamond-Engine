@@ -1,6 +1,6 @@
 model_cfg: configs/models/fm-toy.json
 data_catalog: data/catalog.toy.yaml
-mixture: configs/data/mixtures/base_mix.yaml
+mixture: toy_mix
 precision: fp32
 optimizer:
   name: adamw
