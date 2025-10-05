@@ -17,7 +17,7 @@ except Exception:  # pragma: no cover - datasets not available in minimal envs
 from fm_data.catalog import DatasetConfig
 from fm_data.webdataset_stream import WebDatasetStream
 
-from python.datasets.filters import build_filter
+from fm_train.datasets.filters import build_filter
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,6 @@
-"""Dataset registry exports."""
+"""Dataset helper exports."""
 
-from fm_train.datasets.catalog import Curriculum, get_curriculum
+from .catalog import SourceSample, load_source
+from .filters import build_filter
 
-__all__ = ["Curriculum", "get_curriculum"]
+__all__ = ["SourceSample", "load_source", "build_filter"]
