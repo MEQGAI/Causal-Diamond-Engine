@@ -254,14 +254,14 @@ for step in 1..T:
 
 ```mermaid
 flowchart TD
-  S0[Start step] --> S1[Build context window]
-  S1 --> S2[Propose plan p]
-  S2 --> S3[Project E(p)]
-  S3 --> S4[Score S_geo, S_ent, S_mod]
-  S4 --> S5[Extremize δS = 0 (prox step)]
-  S5 --> S6{Null-stability pass?}
-  S6 -- Yes --> S7[Emit & log to ledger]
-  S6 -- No --> S8[Reduce boundary / soften / escalate] --> S2
+  S0["Start step"] --> S1["Build context window"]
+  S1 --> S2["Propose plan p"]
+  S2 --> S3["Project E(p)"]
+  S3 --> S4["Score S_geo, S_ent, S_mod"]
+  S4 --> S5["Extremize δS = 0 (prox step)"]
+  S5 --> S6{"Null-stability pass?"}
+  S6 -->|Yes| S7["Emit & log to ledger"]
+  S6 -->|No| S8["Reduce boundary / soften / escalate"] --> S2
 ```
 
 ### 10.2 Ledger schema (ER sketch)
