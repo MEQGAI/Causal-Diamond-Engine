@@ -62,7 +62,7 @@ flowchart LR
   subgraph SAF[Stability & Guardrails]
     D --> Q[Null-Stability Check<br/>(Hessian / influence)]
     Q -->|pass| OUT[Emit Action / Tokens]
-    Q -.->|fail| B2[Reduce boundary / soften commit / escalate]
+    Q -. fail .-> B2[Reduce boundary / soften commit / escalate]
   end
 
   OUT --> M
@@ -104,7 +104,7 @@ sequenceDiagram
   else unstable
     Guard-->>Orchestrator: fail
     Orchestrator->>Orchestrator: shrink boundary, soften commit, or escalate
-    Orchestrator-->LM: re‑propose
+    Orchestrator->>LM: re-propose
   end
 ```
 
