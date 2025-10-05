@@ -37,32 +37,32 @@
 
 ```mermaid
 flowchart LR
-  U[User / Upstream Tool] -->|prompt, tools| P[Input Parser]
+  U["User / Upstream Tool"] -->|prompt, tools| P["Input Parser"]
 
-  subgraph RCTX[Context Construction]
-    R[Retriever] --> F[Feature Builder]
-    M[(Long-term Store)]
+  subgraph RCTX["Context Construction"]
+    R["Retriever"] --> F["Feature Builder"]
+    M[("Long-term Store")]
     P --> R
     R --> M
     M --> F
   end
 
-  subgraph DCO[Diamond Orchestrator]
-    F --> B[Boundary Manager (S_geo)]
-    F --> G[Info-Gain Estimator (S_ent)]
-    F --> H[Plan Proposer (policy / LM head)]
-    H --> CEX[Conditional Expectation E (modular projection)]
-    H -->|proposal p| L[(Modal Ledger)]
+  subgraph DCO["Diamond Orchestrator"]
+    F --> B["Boundary Manager (S_geo)"]
+    F --> G["Info-Gain Estimator (S_ent)"]
+    F --> H["Plan Proposer (policy / LM head)"]
+    H --> CEX["Conditional Expectation E (modular projection)"]
+    H -->|proposal p| L[("Modal Ledger")]
     CEX -->|E[p]| L
-    L -->|S_mod = D_KL(p ∥ E[p])| D[Local Optimizer (δS = 0)]
+    L -->|"S_mod = D_KL(p ∥ E[p])"| D["Local Optimizer (δS = 0)"]
     B --> D
     G --> D
   end
 
-  subgraph SAF[Stability & Guardrails]
-    D --> Q[Null-Stability Check (Hessian / influence)]
-    Q -->|pass| OUT[Emit Action / Tokens]
-    Q -. fail .-> B2[Reduce boundary / soften commit / escalate]
+  subgraph SAF["Stability & Guardrails"]
+    D --> Q["Null-Stability Check (Hessian / influence)"]
+    Q -->|pass| OUT["Emit Action / Tokens"]
+    Q -.->|fail| B2["Reduce boundary / soften commit / escalate"]
   end
 
   OUT --> M
