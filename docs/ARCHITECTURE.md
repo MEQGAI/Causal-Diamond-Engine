@@ -180,18 +180,18 @@ classDiagram
 
 ```mermaid
 flowchart TD
-  D[Dataset / Telemetry] --> P1[Preprocess & Label null dirs]
-  P1 --> R1[Retriever Warmup]
-  R1 --> LM[LM / Policy Finetune]
-  LM --> H1[Horizon Head (k-step)]
-  H1 --> O1[Compute S_ent]
-  LM --> E1[Build E (schema / modular)]
-  E1 --> O2[Compute S_mod = KL(p ∥ E[p])]
-  P1 --> O3[Boundary signals for S_geo]
-  O1 --> J[Joint Loss]
+  D["Dataset / Telemetry"] --> P1["Preprocess & Label null dirs"]
+  P1 --> R1["Retriever Warmup"]
+  R1 --> LM["LM / Policy Finetune"]
+  LM --> H1["Horizon Head (k-step)"]
+  H1 --> O1["Compute S_ent"]
+  LM --> E1["Build E (schema / modular)"]
+  E1 --> O2["Compute S_mod"]
+  P1 --> O3["Boundary signals for S_geo"]
+  O1 --> J["Joint Loss"]
   O2 --> J
   O3 --> J
-  J --> OPT[Update (AdamW / Prox)]
+  J --> OPT["Update (AdamW / Prox)"]
 ```
 
 **Joint loss (teacher‑forced, train‑time):**
