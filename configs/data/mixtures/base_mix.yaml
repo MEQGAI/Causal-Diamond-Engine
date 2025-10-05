@@ -1,0 +1,9 @@
+stages:
+  - until_tokens: 1000000
+    mixture:
+      refinedweb-english: 0.6
+      code-stack-lite: 0.4
+  - until_tokens: 2000000
+    mixture:
+      refinedweb-english: 0.5
+      instruct-mixture: 0.5
