@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import io
 import random
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Mapping, Optional
 
-import torch
+import fsspec
 
 from .catalog import DatasetConfig
 
@@ -31,7 +30,7 @@ def _expand_shards(pattern: str) -> List[str]:
 
 
 class WebDatasetStream:
-    """Minimal WebDataset-like stream for tar shards."""
+    """Minimal WebDataset-like stream for tar shards with fsspec support."""
 
     def __init__(
         self,
@@ -43,28 +42,36 @@ class WebDatasetStream:
         self.shuffle = shuffle
         self.rng = random.Random(seed)
         self.shards = _expand_shards(cfg.shards)
+        if not self.shards:
+            raise ValueError(f"dataset {cfg.id} has no shard paths")
 
     def __iter__(self) -> Iterator[Sample]:
         shards = self.shards.copy()
         if self.shuffle:
             self.rng.shuffle(shards)
         for shard in shards:
-            path = Path(shard)
-            if not path.exists():
-                continue
-            with tarfile.open(path, "r:*") as tar:
-                members = [m for m in tar.getmembers() if m.isfile()]
-                if self.shuffle:
-                    self.rng.shuffle(members)
+            with fsspec.open(shard, "rb") as stream:
+                try:
+                    tar = tarfile.open(fileobj=stream, mode="r|*")
+                except tarfile.ReadError as err:
+                    raise RuntimeError(f"failed to open shard {shard}: {err}") from err
+
                 grouped: Dict[str, Dict[str, bytes]] = {}
-                for member in members:
-                    base, ext = Path(member.name).stem, Path(member.name).suffix
+                for member in tar:
+                    if not member.isfile():
+                        continue
                     payload = tar.extractfile(member)
                     if payload is None:
                         continue
+                    base = Path(member.name).stem
+                    ext = Path(member.name).suffix
                     grouped.setdefault(base, {})[ext] = payload.read()
-                for blobs in grouped.values():
-                    meta = {}
+                keys = list(grouped.keys())
+                if self.shuffle:
+                    self.rng.shuffle(keys)
+                for key in keys:
+                    blobs = grouped[key]
+                    meta: Mapping[str, object] = {}
                     if ".json" in blobs:
                         import json
 

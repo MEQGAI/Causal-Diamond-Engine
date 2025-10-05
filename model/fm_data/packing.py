@@ -32,19 +32,23 @@ class SpecialTokenIds:
 
     @classmethod
     def from_processor(cls, processor: spm.SentencePieceProcessor, specials: SpecialTokens) -> "SpecialTokenIds":
-        return cls(
-            bos=processor.piece_to_id(specials.bos),
-            eos=processor.piece_to_id(specials.eos),
-            pad=processor.piece_to_id(specials.pad),
-            unk=processor.piece_to_id(specials.unk),
-            diamond_start=processor.piece_to_id(specials.diamond_start),
-            diamond_end=processor.piece_to_id(specials.diamond_end),
-            view_start=processor.piece_to_id(specials.view_start),
-            view_end=processor.piece_to_id(specials.view_end),
-            plan_start=processor.piece_to_id(specials.plan_start),
-            plan_end=processor.piece_to_id(specials.plan_end),
-            tool=processor.piece_to_id(specials.tool),
-        )
+        ids = {
+            "bos": processor.piece_to_id(specials.bos),
+            "eos": processor.piece_to_id(specials.eos),
+            "pad": processor.piece_to_id(specials.pad),
+            "unk": processor.piece_to_id(specials.unk),
+            "diamond_start": processor.piece_to_id(specials.diamond_start),
+            "diamond_end": processor.piece_to_id(specials.diamond_end),
+            "view_start": processor.piece_to_id(specials.view_start),
+            "view_end": processor.piece_to_id(specials.view_end),
+            "plan_start": processor.piece_to_id(specials.plan_start),
+            "plan_end": processor.piece_to_id(specials.plan_end),
+            "tool": processor.piece_to_id(specials.tool),
+        }
+        missing = {name: token for name, token in ids.items() if token < 0}
+        if missing:
+            raise ValueError(f"special tokens missing from tokenizer: {missing}")
+        return cls(**ids)
 
 
 class _FallbackProcessor:
@@ -67,12 +71,21 @@ class _FallbackProcessor:
 
 
 class SentencePieceTokenizer:
-    def __init__(self, model_path: str | None) -> None:
-        if spm is None or model_path is None or not Path(model_path).exists():
-            self.processor = _FallbackProcessor()
+    def __init__(self, model_path: str | None, allow_fallback: bool = False) -> None:
+        path = Path(model_path) if model_path else None
+        if spm is None:
+            if allow_fallback:
+                self.processor = _FallbackProcessor()
+            else:
+                raise ImportError("sentencepiece is required; install sentencepiece or set allow_fallback=True")
+        elif path is None or not path.exists():
+            if allow_fallback:
+                self.processor = _FallbackProcessor()
+            else:
+                raise FileNotFoundError(f"tokenizer model not found at {model_path}")
         else:
             self.processor = spm.SentencePieceProcessor()
-            self.processor.load(str(model_path))
+            self.processor.load(str(path))
 
     def encode(self, text: str) -> List[int]:
         if hasattr(self.processor, "encode"):
@@ -101,9 +114,10 @@ class DiamondPacker:
         special_tokens: SpecialTokens,
         plan_probability: float = 0.3,
         seed: Optional[int] = None,
+        allow_tokenizer_fallback: bool = False,
     ) -> None:
         self.catalog = catalog
-        self.tokenizer = SentencePieceTokenizer(str(catalog.tokenizer))
+        self.tokenizer = SentencePieceTokenizer(str(catalog.tokenizer), allow_fallback=allow_tokenizer_fallback)
         self.special_ids = SpecialTokenIds.from_processor(self.tokenizer.processor, special_tokens)
         self.seq_len = catalog.seq_len
         self.slot_len = catalog.packing.slot_len
@@ -112,7 +126,7 @@ class DiamondPacker:
         self.rng = random.Random(seed)
 
     def _insert_specials(self, tokens: List[int]) -> Tuple[List[int], List[bool]]:
-        tokens = tokens[: self.seq_len - 4]
+        tokens = tokens[: max(0, self.seq_len - 4)]
         seq = [self.special_ids.bos, self.special_ids.diamond_start]
         seq.extend(tokens)
         seq.append(self.special_ids.diamond_end)
@@ -150,10 +164,12 @@ class DiamondPacker:
 
     def pack_raw_text(self, text: str) -> PackedSequence:
         tokens = self.tokenizer.encode(text)
+        if not tokens:
+            raise ValueError("tokenizer produced empty sequence; confirm tokenizer model and input text")
         seq, planner_mask = self._insert_specials(tokens)
         input_ids = torch.tensor(seq, dtype=torch.long)
         planner = torch.tensor(planner_mask, dtype=torch.bool)
         return PackedSequence(input_ids=input_ids, planner_mask=planner)
 
 
-__all__ = ["DiamondPacker", "PackedSequence"]
+__all__ = ["DiamondPacker", "PackedSequence", "SentencePieceTokenizer", "SpecialTokenIds"]

@@ -8,12 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List
 
-import numpy as np
 import torch
 
 from fm_core.checkpoint import load_checkpoint
-from fm_core.projection import SlotLayout
-from fm_train.losses import language_model_loss
+from fm_data.packing import SentencePieceTokenizer, SpecialTokenIds
+from fm_train.objectives import language_model_loss
 
 
 @dataclass
@@ -67,51 +66,56 @@ def perplexity(logits: torch.Tensor, labels: torch.Tensor) -> float:
 def cascade_fail_rate(planner_probs: torch.Tensor, planner_mask: torch.Tensor) -> float:
     if planner_mask.sum() == 0:
         return 0.0
-    # Use entropy heuristic: high entropy => fail
-    probs = planner_probs.exp()
+    probs = planner_probs.exp().clamp_min(1e-9)
     entropy = -(probs * planner_probs).sum(dim=-1)
     failures = (entropy > 3.0) & planner_mask
     return float(failures.float().mean().item())
 
 
 def planner_ece(planner_probs: torch.Tensor, planner_mask: torch.Tensor, bins: int = 10) -> float:
-    probs = planner_probs.exp().max(dim=-1).values
-    targets = torch.ones_like(probs)
-    confidences = probs[planner_mask]
+    confidences = planner_probs.exp().max(dim=-1).values[planner_mask]
     if confidences.numel() == 0:
         return 0.0
+    # Assume top-1 correctness in absence of labels; penalise overconfidence.
     bin_boundaries = torch.linspace(0, 1, bins + 1, device=confidences.device)
     ece = torch.zeros(1, device=confidences.device)
+    targets = torch.ones_like(confidences)
     for i in range(bins):
         lower, upper = bin_boundaries[i], bin_boundaries[i + 1]
         mask = (confidences >= lower) & (confidences < upper)
         if mask.sum() == 0:
             continue
-        acc = targets[planner_mask][mask].mean()
+        acc = targets[mask].mean()
         conf = confidences[mask].mean()
         ece += torch.abs(acc - conf) * mask.float().mean()
     return float(ece.item())
 
 
 def evaluate_model(model_dir: Path | str) -> Dict[str, float]:
-    model, cfg = load_checkpoint(model_dir, map_location="cpu")
-    slot_layout = SlotLayout(slot_len=model.slot_layout.slot_len, slots_per_seq=model.slot_layout.slots_per_seq)
+    model, cfg_dict = load_checkpoint(model_dir, map_location="cpu")
+    model.eval()
+    config = model.cfg
     tokenizer_path = Path(model_dir) / "tokenizer.model"
-    samples = _default_samples()
+    tokenizer = SentencePieceTokenizer(str(tokenizer_path), allow_fallback=False)
+    specials = SpecialTokenIds.from_processor(tokenizer.processor, config.special_tokens)
 
-    # Use naive character-level tokenisation fallback
     metrics: Dict[str, List[float]] = {"perplexity": [], "cascade_fail": [], "planner_ece": []}
-    for sample in samples:
-        prompt_ids = torch.tensor([[ord(c) % model.cfg.vocab_size for c in sample.prompt[: model.cfg.seq_len]]], dtype=torch.long)
-        outputs = model(prompt_ids)
-        metrics["perplexity"].append(perplexity(outputs["logits"], prompt_ids))
-        planner = outputs["planner"].log_probs
-        mask = torch.zeros_like(planner[..., 0], dtype=torch.bool)
-        mask[..., 1:-1] = True
-        metrics["cascade_fail"].append(cascade_fail_rate(planner, mask))
-        metrics["planner_ece"].append(planner_ece(planner, mask))
+    samples = _default_samples()
+    with torch.no_grad():
+        for sample in samples:
+            token_ids = [specials.bos]
+            token_ids.extend(tokenizer.encode(sample.prompt))
+            token_ids.append(specials.eos)
+            token_ids = token_ids[: config.seq_len]
+            input_ids = torch.tensor([token_ids], dtype=torch.long)
+            outputs = model(input_ids)
+            metrics["perplexity"].append(perplexity(outputs["logits"], input_ids))
+            planner = outputs["planner"].log_probs
+            mask = torch.zeros_like(planner[..., 0], dtype=torch.bool)
+            metrics["cascade_fail"].append(cascade_fail_rate(planner, mask))
+            metrics["planner_ece"].append(planner_ece(planner, mask))
 
-    return {name: float(np.mean(values)) for name, values in metrics.items()}
+    return {name: float(sum(values) / max(1, len(values))) for name, values in metrics.items()}
 
 
 def main(argv: Iterable[str] | None = None) -> int:

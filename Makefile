@@ -31,7 +31,7 @@ run_server:
 	uvicorn serving.python.src.app:app --reload
 
 train:
-	$(PYTHON) -m fm_train.trainer.run --config configs/train/default.yaml
+	$(PYTHON) -m fm_train.cli fit --config configs/train/pretrain_v0.yaml --steps 100
 
 eval:
 	$(PYTHON) -m fm_eval.runner --config configs/eval/kill_numbers.yaml

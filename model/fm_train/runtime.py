@@ -22,6 +22,10 @@ from .config import TrainConfig, load_train_config
 from .gate import GateMetrics, NullStabilityGate
 from .objectives import compute_total_loss
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 try:  # pragma: no cover - optional Rust engine
     from engine import CausalDiamondEngine  # type: ignore
 except Exception:  # pragma: no cover
@@ -44,32 +48,50 @@ class MixtureIterableDataset(IterableDataset):
         self.packer = packer
         self.schedule = catalog.mixtures[mixture]
         self.dataset_lookup = catalog.dataset_lookup()
+        self.stage_idx = 0
+        self.tokens_emitted = 0
+        self.tokens_per_seq = catalog.seq_len
+
+    def _advance_stage(self) -> None:
+        while self.stage_idx < len(self.schedule) - 1 and self.tokens_emitted >= self.schedule[self.stage_idx].until_tokens:
+            self.stage_idx += 1
+            logger.info("advancing mixture stage", extra={"stage": self.stage_idx, "tokens": self.tokens_emitted})
 
     def _sample_text(self, dataset_id: str) -> str:
         cfg = self.dataset_lookup[dataset_id]
         stream = WebDatasetStream(cfg, shuffle=True)
         for sample in stream:
-            for key in (b"txt", b"text", b"code"):
-                key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-                if key_str in sample.data:
-                    blob = sample.data[key_str]
+            sources = [".txt", ".text", ".code", "txt", "text", "code"]
+            for key in sources:
+                if key in sample.data:
+                    blob = sample.data[key]
                     if isinstance(blob, bytes):
-                        return blob.decode("utf-8", errors="ignore")
+                        text = blob.decode("utf-8", errors="ignore")
+                    else:
+                        text = str(blob)
+                    if text.strip():
+                        return text
             if "text" in sample.meta:
-                return str(sample.meta["text"])
-        return f"[{dataset_id}] synthetic diamond sample"
+                text = str(sample.meta["text"])
+                if text.strip():
+                    return text
+        raise RuntimeError(f"dataset {dataset_id} yielded no valid samples; ensure shards are accessible")
 
     def __iter__(self) -> Iterator[PackedSequence]:
-        # Use first schedule stage for now.
-        stage = self.schedule[0]
-        dataset_ids = list(stage.weights.keys())
-        weights = torch.tensor([stage.weights[ds] for ds in dataset_ids])
-        weights = weights / weights.sum()
+        self.stage_idx = 0
+        self.tokens_emitted = 0
         while True:
+            self._advance_stage()
+            stage = self.schedule[self.stage_idx]
+            dataset_ids = list(stage.weights.keys())
+            weights = torch.tensor([stage.weights[ds] for ds in dataset_ids])
+            weights = weights / weights.sum()
             choice = torch.multinomial(weights, 1).item()
             dataset_id = dataset_ids[choice]
             text = self._sample_text(dataset_id)
-            yield self.packer.pack_raw_text(text)
+            packed = self.packer.pack_raw_text(text)
+            self.tokens_emitted += int(packed.input_ids.numel())
+            yield packed
 
 
 def collate_packed(batch: List[PackedSequence]) -> Dict[str, torch.Tensor]:
@@ -118,7 +140,13 @@ class Trainer:
             slots_per_seq=self.catalog.packing.slots_per_seq,
         )
         self.slot_layout = slot_layout
-        self.packer = DiamondPacker(self.catalog, self.model_cfg.special_tokens)
+        try:
+            self.packer = DiamondPacker(self.catalog, self.model_cfg.special_tokens)
+        except (FileNotFoundError, ImportError) as exc:
+            raise RuntimeError(
+                f"Failed to initialise tokenizer from {self.catalog.tokenizer}. "
+                "Ensure checkpoints include tokenizer.model and sentencepiece is installed."
+            ) from exc
         self.dataset = MixtureIterableDataset(self.catalog, cfg.mixture, self.packer)
         self.dataloader = DataLoader(
             self.dataset,
