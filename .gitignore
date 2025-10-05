@@ -55,6 +55,7 @@ terraform.tfstate*
 /data/external/
 /data/interim/
 /data/processed/
+/data/sp_text/
 /models/
 checkpoints/
 
@@ -76,4 +77,3 @@ reports/
 .env.local
 .env.*
 !.env.example
-

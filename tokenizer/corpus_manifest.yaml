@@ -1,0 +1,49 @@
+version: 2
+output_dir: "data/sp_text"
+
+splits:
+  train:
+    target_lines: 50000
+    sources:
+      - name: codeparrot_clean
+        type: hf
+        dataset: codeparrot/codeparrot-clean
+        split: train
+        text_key: content
+        weight: 0.45
+      - name: c4_en
+        type: hf
+        dataset: allenai/c4
+        config: en
+        split: train
+        text_key: text
+        weight: 0.35
+      - name: europarl_en_fr
+        type: hf
+        dataset: Helsinki-NLP/europarl
+        config: en-fr
+        split: train
+        text_key: translation.en
+        secondary_text_key: translation.fr
+        template: "{primary}\n{secondary}"
+        weight: 0.20
+
+  dev:
+    target_lines: 2000
+    sources:
+      - name: c4_dev
+        type: hf
+        dataset: allenai/c4
+        config: en
+        split: validation
+        text_key: text
+        weight: 0.6
+      - name: europarl_dev
+        type: hf
+        dataset: Helsinki-NLP/europarl
+        config: en-fr
+        split: train
+        text_key: translation.en
+        secondary_text_key: translation.fr
+        template: "{primary}\n{secondary}"
+        weight: 0.4

@@ -1,0 +1,5 @@
+<|user|>: Hello<|sep|><|assistant|>: Hi there!<|endoftext|>
+def foo(x):\n<|indent_4|>return x*x\n
+{\n<|indent_2|>"key": "value"\n}\n
+<|system|>: You are a helpful assistant.<|sep|><|user|>: Write a JSON schema.<|endoftext|>
+\tTabbed line leading with a tab<|newline|>
