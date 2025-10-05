@@ -84,6 +84,7 @@ class MultiHeadAttention(nn.Module):
         x: torch.Tensor,
         slot_mask: Optional[torch.Tensor] = None,
         causal: bool = True,
+        attn_bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         batch, seq_len, _ = x.shape
         device = x.device
@@ -113,7 +114,20 @@ class MultiHeadAttention(nn.Module):
         k = k.repeat_interleave(expand_factor, dim=1)
         v = v.repeat_interleave(expand_factor, dim=1)
 
-        if slot_mask is not None:
+        if attn_bias is not None:
+            bias = attn_bias[:, :, :seq_len, :seq_len]
+            if bias.size(1) == 1:
+                bias = bias.expand(batch, self.n_heads, seq_len, seq_len)
+            bias = bias.to(q.dtype)
+            out = torch.nn.functional.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=bias,
+                dropout_p=self.dropout if self.training else 0.0,
+                is_causal=False,
+            )
+        elif slot_mask is not None:
             # scaled_dot_product_attention expects attn_mask with True=mask
             mask = (~slot_mask.bool()).unsqueeze(0).unsqueeze(0)
             out = torch.nn.functional.scaled_dot_product_attention(
@@ -159,8 +173,11 @@ class TransformerBlock(nn.Module):
         self,
         x: torch.Tensor,
         slot_mask: Optional[torch.Tensor] = None,
+        attn_bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        attn_out = self.attn(self.attn_norm(x), slot_mask=slot_mask)
+        attn_out = self.attn(
+            self.attn_norm(x), slot_mask=slot_mask, attn_bias=attn_bias
+        )
         x = x + self.dropout(attn_out)
         mlp_out = self.mlp(self.mlp_norm(x))
         return x + self.dropout(mlp_out)
@@ -201,13 +218,19 @@ class FoundationModel(nn.Module):
         self,
         input_ids: torch.Tensor,
         planner_mask: Optional[torch.Tensor] = None,
+        attn_bias: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor | PlannerOutput]:
         if input_ids.size(1) > self.slot_layout.seq_len:
             raise ValueError("input length exceeds configured slot layout")
         x = self.embeddings(input_ids)
-        slot_mask = self.slot_mask[: input_ids.size(1), : input_ids.size(1)]
+        slot_mask = None
+        mask_bias = None
+        if attn_bias is not None:
+            mask_bias = attn_bias[:, :, : input_ids.size(1), : input_ids.size(1)]
+        else:
+            slot_mask = self.slot_mask[: input_ids.size(1), : input_ids.size(1)]
         for block in self.blocks:
-            x = block(x, slot_mask=slot_mask)
+            x = block(x, slot_mask=slot_mask, attn_bias=mask_bias)
         hidden = self.final_norm(x)
         logits = self.lm_head(hidden)
         planner = self.planner_head(hidden)

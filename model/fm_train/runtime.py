@@ -11,7 +11,7 @@ from torch.optim import AdamW
 from torch.utils.data import IterableDataset, DataLoader
 
 from fm_core.config import ModelConfig, load_config as load_model_config
-from fm_core.projection import SlotLayout
+from fm_core.projection import SlotLayout, make_view_mask
 from fm_core.transformer import FoundationModel
 from fm_data.catalog import Catalog, load_catalog
 from fm_data.packing import DiamondPacker, PackedSequence
@@ -151,6 +151,8 @@ class Trainer:
             slots_per_seq=self.catalog.packing.slots_per_seq,
         )
         self.slot_layout = slot_layout
+        self.loss_cfg = cfg.losses
+        self.modal_cfg = cfg.losses.modal
         try:
             self.packer = DiamondPacker(self.catalog, self.model_cfg.special_tokens)
         except (FileNotFoundError, ImportError) as exc:
@@ -158,6 +160,7 @@ class Trainer:
                 f"Failed to initialise tokenizer from {self.catalog.tokenizer}. "
                 "Ensure checkpoints include tokenizer.model and sentencepiece is installed."
             ) from exc
+        self.special_ids = getattr(self.packer, "special_ids", None)
         self.dataset = MixtureIterableDataset(self.catalog, cfg.mixture, self.packer)
         self.dataloader = DataLoader(
             self.dataset,
@@ -189,16 +192,77 @@ class Trainer:
             batch = next(data_iter)
             input_ids = batch["input_ids"].to(self.device)
             planner_tensor = batch["planner_mask"].to(self.device)
+            if planner_tensor.dtype != torch.bool:
+                planner_tensor = planner_tensor.bool()
             planner_mask = planner_tensor if planner_tensor.any() else None
             with autocast(self.cfg.precision):
                 outputs = self.model(
                     input_ids, planner_mask=planner_mask
                 )
+
+                modal_inputs = None
+                apply_modal = (
+                    self.modal_cfg.lambda_mod > 0.0
+                    and planner_mask is not None
+                    and planner_tensor.any()
+                )
+
+                if apply_modal:
+                    center_slots = self._compute_center_slots(input_ids)
+                    view_mask = make_view_mask(
+                        input_ids.size(0),
+                        input_ids.size(1),
+                        self.modal_cfg.slot_len,
+                        center_slots,
+                        self.modal_cfg.view_window,
+                        device=input_ids.device,
+                        dtype=outputs["logits"].dtype,
+                    )
+                    outputs_view = self.model(
+                        input_ids,
+                        planner_mask=planner_mask,
+                        attn_bias=view_mask,
+                    )
+
+                    apply_token = (
+                        "token_spans" in self.modal_cfg.apply_on
+                        and self.modal_cfg.lambda_token > 0.0
+                    )
+                    plan_span_mask = (
+                        planner_tensor if apply_token else None
+                    )
+                    modal_inputs = {
+                        "planner_logits": outputs["planner"].logits,
+                        "planner_logits_view": outputs_view["planner"].logits,
+                        "token_logits": outputs["logits"] if apply_token else None,
+                        "token_logits_view": outputs_view["logits"]
+                        if apply_token
+                        else None,
+                        "plan_pos_mask": planner_tensor,
+                        "plan_span_mask": plan_span_mask,
+                        "slot_len": self.modal_cfg.slot_len,
+                        "center_slots": center_slots,
+                        "view_window": self.modal_cfg.view_window,
+                        "slot_weights": tuple(
+                            float(w) for w in self.modal_cfg.slot_weights
+                        ),
+                        "tau_planner": self.modal_cfg.tau_planner,
+                        "tau_token": self.modal_cfg.tau_token,
+                        "eps": self.modal_cfg.eps,
+                        "clip_kl": self.modal_cfg.clip_kl,
+                        "token_topk": self.modal_cfg.token_topk,
+                        "stop_grad_projection": self.modal_cfg.stop_grad_projection,
+                        "lambda_planner": self.modal_cfg.lambda_planner,
+                        "lambda_token": self.modal_cfg.lambda_token,
+                    }
+
                 losses = compute_total_loss(
                     outputs,
                     batch={"input_ids": input_ids},
                     slot_layout=self.slot_layout,
-                    lambda_mod=self.cfg.ledger.lambda_mod,
+                    modal_cfg=self.modal_cfg,
+                    modal_inputs=modal_inputs,
+                    lambda_geo=self.loss_cfg.lambda_geo,
                 )
                 loss = losses["loss_total"] / accum
             loss.backward()
@@ -232,12 +296,41 @@ class Trainer:
                     "delta": metrics.delta_after,
                     "loss_ent": losses["loss_ent"].item(),
                     "loss_mod": losses["loss_mod"].item(),
+                    "loss_mod_planner": losses["loss_mod_planner"].item(),
+                    "loss_mod_token": losses["loss_mod_token"].item(),
                     "accepted": decision.accepted,
                     "reason": decision.reason,
                     "trust_radius": decision.trust_radius,
                 }
                 self._log_ledger(ledger_payload)
                 self._engine_report(ledger_payload)
+
+    def _compute_center_slots(self, input_ids: torch.Tensor) -> torch.LongTensor:
+        batch = input_ids.size(0)
+        device = input_ids.device
+        default_center = self.slot_layout.slots_per_seq // 2
+        centers = torch.full(
+            (batch,), default_center, device=device, dtype=torch.long
+        )
+        if self.special_ids is None:
+            return centers
+        view_start = getattr(self.special_ids, "view_start", None)
+        view_end = getattr(self.special_ids, "view_end", None)
+        slot_len = self.modal_cfg.slot_len
+        for idx in range(batch):
+            candidate = None
+            if view_start is not None:
+                pos = (input_ids[idx] == view_start).nonzero(as_tuple=False)
+                if pos.numel() > 0:
+                    candidate = int(pos[0].item()) // slot_len
+            if candidate is None and view_end is not None:
+                pos = (input_ids[idx] == view_end).nonzero(as_tuple=False)
+                if pos.numel() > 0:
+                    candidate = int(pos[0].item()) // slot_len
+            if candidate is not None:
+                centers[idx] = candidate
+        centers.clamp_(0, self.slot_layout.slots_per_seq - 1)
+        return centers
 
 
 def train_from_config(config_path: Path | str, steps: int) -> None:

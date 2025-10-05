@@ -37,6 +37,10 @@ This guide describes how to prepare a workstation for Reality's Ledger.
 - Runtime dependencies: `requirements.txt`
 - Tooling dependencies: `requirements-dev.txt`
 - Entry point: `python -m python.trainer.run --task=tool_reasoning --budget=2.0`
+- Integration smoke tests:
+  - Python path: `pytest tests/integration/test_training_flow.py`
+  - Serving API: `pytest tests/integration/test_serving.py`
+  - CLI (requires Rust): `pytest tests/integration/test_cli.py -m "slow"`
 
 ## Rust toolchain
 

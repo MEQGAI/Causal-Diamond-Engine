@@ -18,6 +18,22 @@ logging:
   wandb: false
   tensorboard: false
   modal_ledger_interval: 10
+losses:
+  lambda_geo: 0.0
+  modal:
+    apply_on: ["planner"]
+    lambda_mod: 0.25
+    lambda_planner: 1.0
+    lambda_token: 0.0
+    tau_planner: 1.0
+    tau_token: 1.0
+    slot_len: 128
+    view_window: 1
+    slot_weights: [1.0, 0.5]
+    stop_grad_projection: true
+    eps: 1.0e-6
+    clip_kl: 10.0
+    token_topk: 64
 ledger:
   lambda_mod: 0.0
   apply_on: []

@@ -48,6 +48,29 @@ class GateConfig:
 
 
 @dataclass
+class ModalLossConfig:
+    apply_on: List[str] = field(default_factory=lambda: ["planner"])
+    lambda_mod: float = 0.25
+    lambda_planner: float = 1.0
+    lambda_token: float = 0.0
+    tau_planner: float = 1.0
+    tau_token: float = 1.0
+    slot_len: int = 512
+    view_window: int = 1
+    slot_weights: List[float] = field(default_factory=lambda: [1.0, 0.5])
+    stop_grad_projection: bool = True
+    eps: float = 1e-6
+    clip_kl: float = 10.0
+    token_topk: int = 256
+
+
+@dataclass
+class LossConfig:
+    modal: ModalLossConfig = field(default_factory=ModalLossConfig)
+    lambda_geo: float = 0.0
+
+
+@dataclass
 class TrainConfig:
     model_cfg: Path
     data_catalog: Path
@@ -58,6 +81,7 @@ class TrainConfig:
     logging: LoggingConfig
     ledger: LedgerConfig
     gate: GateConfig
+    losses: LossConfig
 
 
 def load_train_config(path: Path | str) -> TrainConfig:
@@ -67,6 +91,12 @@ def load_train_config(path: Path | str) -> TrainConfig:
     logging_cfg = LoggingConfig(**data.get("logging", {}))
     ledger = LedgerConfig(**data.get("ledger", {}))
     gate = GateConfig(**data.get("gate", {}))
+    losses_raw = data.get("losses", {})
+    modal_raw = losses_raw.get("modal", {})
+    losses = LossConfig(
+        modal=ModalLossConfig(**modal_raw),
+        lambda_geo=losses_raw.get("lambda_geo", 0.0),
+    )
     cfg = TrainConfig(
         model_cfg=Path(data["model_cfg"]),
         data_catalog=Path(data["data_catalog"]),
@@ -77,8 +107,14 @@ def load_train_config(path: Path | str) -> TrainConfig:
         logging=logging_cfg,
         ledger=ledger,
         gate=gate,
+        losses=losses,
     )
     return cfg
 
 
-__all__ = ["TrainConfig", "load_train_config"]
+__all__ = [
+    "TrainConfig",
+    "load_train_config",
+    "LossConfig",
+    "ModalLossConfig",
+]
