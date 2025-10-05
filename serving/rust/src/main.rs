@@ -9,10 +9,9 @@ async fn main() -> anyhow::Result<()> {
 
     // TODO: wire Axum handlers into engine runtime once refactor lands.
     let addr: SocketAddr = "127.0.0.1:8000".parse()?;
-    tracing::info!("starting serving shim", %addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await?;
+    tracing::info!(address = %addr, "starting serving shim");
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app.into_make_service()).await?;
 
     Ok(())
 }
