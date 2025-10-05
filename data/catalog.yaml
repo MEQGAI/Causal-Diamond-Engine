@@ -1,0 +1,43 @@
+version: 1
+tokenizer: checkpoints/fm-b-220m/tokenizer.model
+seq_len: 4096
+packing:
+  slot_len: 512
+  slots_per_seq: 8
+datasets:
+  - id: refinedweb-english
+    kind: text
+    shards: "s3://example/refinedweb/{00000..00010}.tar"
+    format: webdataset
+    weight: 0.55
+    license: cc-by
+    filters:
+      - utf8
+      - max_len: 8192
+  - id: code-stack-lite
+    kind: code
+    shards: "s3://example/the-stack-lite/{0000..0005}.tar"
+    format: webdataset
+    weight: 0.2
+    license: varies
+    filters:
+      - lang_allow: [py, rs, ts, cpp, md]
+  - id: math-synthetic
+    kind: math
+    shards: "s3://example/gsm/{0000..0003}.tar"
+    format: webdataset
+    weight: 0.1
+  - id: instruct-mixture
+    kind: instruct
+    shards: "s3://example/instruct/{0000..0003}.tar"
+    format: webdataset
+    weight: 0.15
+mixtures:
+  - name: pretrain_v0
+    schedule:
+      - until_tokens: 2.0e11
+        weights:
+          refinedweb-english: 0.6
+          code-stack-lite: 0.2
+          math-synthetic: 0.1
+          instruct-mixture: 0.1

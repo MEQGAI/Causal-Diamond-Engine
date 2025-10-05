@@ -1,0 +1,30 @@
+{
+  "arch_version": "rlfm_1",
+  "vocab_size": 50176,
+  "n_layers": 24,
+  "d_model": 1024,
+  "n_heads": 16,
+  "n_kv_heads": 4,
+  "mlp_hidden_dim": 2560,
+  "rope_theta": 10000.0,
+  "rope_scaling": {"type": "linear", "factor": 2.0},
+  "attn_impl": "flash2",
+  "norm": "rmsnorm",
+  "activation": "swiglu",
+  "seq_len": 4096,
+  "planner_vocab": 128,
+  "dropout": 0.0,
+  "special_tokens": {
+    "bos": "<BOS>",
+    "eos": "<EOS>",
+    "pad": "<PAD>",
+    "unk": "<UNK>",
+    "diamond_start": "<DIAMOND_START>",
+    "diamond_end": "<DIAMOND_END>",
+    "view_start": "<VIEW_START>",
+    "view_end": "<VIEW_END>",
+    "plan_start": "<PLAN_START>",
+    "plan_end": "<PLAN_END>",
+    "tool": "<TOOL>"
+  }
+}

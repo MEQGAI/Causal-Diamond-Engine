@@ -1,5 +1,5 @@
 """Training loops, curriculum builders, and CLI entrypoints."""
 
-from fm_train.trainer.run import main as train_main
+from .runtime import Trainer, train_from_config
 
-__all__ = ["train_main"]
+__all__ = ["Trainer", "train_from_config"]
