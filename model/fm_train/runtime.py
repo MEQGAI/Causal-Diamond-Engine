@@ -662,10 +662,14 @@ class Trainer:
         return centers
 
 
-def train_from_config(config_path: Path | str, steps: int) -> None:
-    cfg = load_train_config(config_path)
+def train_from_config(config: TrainConfig | Path | str, steps: int) -> Trainer:
+    if not isinstance(config, TrainConfig):
+        cfg = load_train_config(config)
+    else:
+        cfg = config
     trainer = Trainer(cfg)
     trainer.fit(steps)
+    return trainer
 
 
 __all__ = ["Trainer", "train_from_config"]

@@ -44,7 +44,7 @@ def _default_records() -> List[EvalRecord]:
         ),
         EvalRecord(
             prompt="Return a JSON object with keys 'a' and 'b' where a=1 and b=2.",
-            target="{"a": 1, "b": 2}",
+            target='{"a": 1, "b": 2}',
             expect_json=True,
         ),
         EvalRecord(
