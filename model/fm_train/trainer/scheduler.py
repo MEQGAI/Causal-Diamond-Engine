@@ -70,6 +70,10 @@ class TrainingScheduler:
     def current_stage(self) -> Stage:
         return self._stages[self._stage_idx]
 
+    @property
+    def stage_idx(self) -> int:
+        return self._stage_idx
+
     def advance(self, tokens: int) -> None:
         self._tokens_seen += tokens
         tokens_global = self._tokens_seen

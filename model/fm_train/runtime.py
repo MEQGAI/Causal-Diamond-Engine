@@ -4,7 +4,7 @@ import json
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Mapping, Optional
 
 import torch
 from torch.optim import AdamW
@@ -40,62 +40,62 @@ class TrainerState:
 
 
 class MixtureIterableDataset(IterableDataset):
-    def __init__(self, catalog: Catalog, mixture: str, packer: DiamondPacker) -> None:
+    def __init__(
+        self,
+        catalog: Catalog,
+        packer: DiamondPacker,
+        initial_mixture: Mapping[str, float],
+    ) -> None:
         super().__init__()
         self.catalog = catalog
-        self.mixture = mixture
         self.packer = packer
-        self.schedule = catalog.mixtures[mixture]
         self.dataset_lookup = catalog.dataset_lookup()
-        self.stage_idx = 0
-        self.tokens_emitted = 0
         self.tokens_per_seq = catalog.seq_len
+        self.current_ids: List[str] = []
+        self.weights = torch.tensor([])
+        self._iterators: Dict[str, Iterator[Any]] = {}
+        self._generator = torch.Generator()
+        self.set_mixture(initial_mixture)
 
-    def _advance_stage(self) -> None:
-        while (
-            self.stage_idx < len(self.schedule) - 1
-            and self.tokens_emitted >= self.schedule[self.stage_idx].until_tokens
-        ):
-            self.stage_idx += 1
-            logger.info(
-                "advancing mixture stage",
-                extra={"stage": self.stage_idx, "tokens": self.tokens_emitted},
-            )
+    def set_mixture(self, mixture: Mapping[str, float]) -> None:
+        if not mixture:
+            raise ValueError("mixture must contain at least one dataset")
+        self.current_ids = list(mixture.keys())
+        weights = torch.tensor([float(mixture[k]) for k in self.current_ids])
+        weights = weights.clamp_min(0.0)
+        total = weights.sum()
+        if total <= 0:
+            raise ValueError("mixture weights must sum to > 0")
+        self.weights = weights / total
 
-    def _sample_text(self, dataset_id: str) -> str:
+    def _dataset_entry(self, dataset_id: str) -> Dict[str, Any]:
         cfg = self.dataset_lookup[dataset_id]
         entry = asdict(cfg)
         entry.setdefault("type", entry.get("format", "webdataset"))
+        return entry
+
+    def _next_sample(self, dataset_id: str) -> str:
+        iterator = self._iterators.get(dataset_id)
+        if iterator is None:
+            iterator = load_source(self._dataset_entry(dataset_id), split="train")
+            self._iterators[dataset_id] = iterator
         try:
-            source_iter = load_source(entry, split="train")
-        except Exception as err:
-            raise RuntimeError(
-                f"failed to load dataset '{dataset_id}': {err}"
-            ) from err
-
-        for sample in source_iter:
-            text = sample.text.strip()
-            if text:
-                return text
-
-        raise RuntimeError(
-            f"dataset {dataset_id} yielded no valid samples; ensure shards are accessible"
-        )
+            sample = next(iterator)
+        except StopIteration:
+            iterator = load_source(self._dataset_entry(dataset_id), split="train")
+            self._iterators[dataset_id] = iterator
+            sample = next(iterator)
+        text = sample.text.strip()
+        if not text:
+            return self._next_sample(dataset_id)
+        return text
 
     def __iter__(self) -> Iterator[PackedSequence]:
-        self.stage_idx = 0
-        self.tokens_emitted = 0
         while True:
-            self._advance_stage()
-            stage = self.schedule[self.stage_idx]
-            dataset_ids = list(stage.weights.keys())
-            weights = torch.tensor([stage.weights[ds] for ds in dataset_ids])
-            weights = weights / weights.sum()
-            choice = torch.multinomial(weights, 1).item()
-            dataset_id = dataset_ids[choice]
-            text = self._sample_text(dataset_id)
+            choice = torch.multinomial(self.weights, 1, replacement=True, generator=self._generator).item()
+            dataset_id = self.current_ids[choice]
+            text = self._next_sample(dataset_id)
             packed = self.packer.pack_raw_text(text)
-            self.tokens_emitted += int(packed.input_ids.numel())
             yield packed
 
 
@@ -120,37 +120,50 @@ def autocast(precision: str):  # pragma: no cover - simple context helper
 class Trainer:
     def __init__(self, cfg: TrainConfig, device: Optional[torch.device] = None) -> None:
         self.cfg = cfg
-        self.device = device or torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.rank = 0
+        self.world_size = 1
+        self.is_distributed = False
+        self.device = self._init_distributed(device)
+        self.is_master = self.rank == 0
+
         self.model_cfg: ModelConfig = load_model_config(cfg.model_cfg)
         self.catalog: Catalog = load_catalog(cfg.data_catalog)
+
+        self.loss_cfg = cfg.losses
+        self.modal_cfg = cfg.losses.modal
+        self.gate_cfg = cfg.gate
+        self.current_view_window = self.modal_cfg.view_window
+
         self.model = FoundationModel(
-            self.model_cfg, slot_window=cfg.ledger.view.get("window", 1)
+            self.model_cfg, slot_window=self.current_view_window
         )
         self.model.to(self.device)
+        self._wrap_model()
+
         self.optimizer = AdamW(
             self.model.parameters(),
             lr=cfg.optimizer.lr,
             betas=tuple(cfg.optimizer.betas),
             weight_decay=cfg.optimizer.weight_decay,
         )
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer, T_max=cfg.optimizer.warmup_steps
         )
+        self.grad_clip = cfg.distributed.gradient_clip
+
         self.state = TrainerState()
         self.gate = NullStabilityGate(
             alpha=cfg.gate.armijo_alpha,
             trust_radius=cfg.gate.trust_radius_init,
             kl_smooth_max=cfg.gate.kl_smooth_max,
         )
+
         slot_layout = SlotLayout(
             slot_len=self.catalog.packing.slot_len,
             slots_per_seq=self.catalog.packing.slots_per_seq,
         )
         self.slot_layout = slot_layout
-        self.loss_cfg = cfg.losses
-        self.modal_cfg = cfg.losses.modal
+
         try:
             self.packer = DiamondPacker(self.catalog, self.model_cfg.special_tokens)
         except (FileNotFoundError, ImportError) as exc:
@@ -159,22 +172,50 @@ class Trainer:
                 "Ensure checkpoints include tokenizer.model and sentencepiece is installed."
             ) from exc
         self.special_ids = getattr(self.packer, "special_ids", None)
-        self.dataset = MixtureIterableDataset(self.catalog, cfg.mixture, self.packer)
+
+        mixture, scheduler = self._resolve_mixture(cfg.mixture)
+        self.stage_scheduler = scheduler
+        self.dataset = MixtureIterableDataset(self.catalog, self.packer, mixture)
         self.dataloader = DataLoader(
             self.dataset,
             batch_size=cfg.distributed.grad_accum_steps,
             collate_fn=collate_packed,
         )
+
+        self.checkpoint_cfg = cfg.checkpoints
+        self.output_dir = self.checkpoint_cfg.output_dir
+        if self.is_master:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.saved_checkpoints: deque[Path] = deque()
+        self.tokens_since_last_checkpoint = 0
+
+        self.logging_cfg = cfg.logging
+        self.log_interval = self.logging_cfg.log_every
+        self.tb_writer = self._maybe_create_summary_writer()
+        self.wandb_run = self._maybe_init_wandb()
+
+        self.engine_cfg = cfg.engine_eval
+        self.engine = CausalDiamondEngine() if (CausalDiamondEngine and self.engine_cfg.enabled) else None
+
         self.ledger_path = Path("ledger.jsonl")
-        self.ledger_path.write_text("", encoding="utf-8")
-        self.engine = CausalDiamondEngine() if CausalDiamondEngine else None
+        if self.is_master:
+            self.ledger_path.write_text("", encoding="utf-8")
+
+        self.tokens_per_step = 0
+
+        self._maybe_resume()
+
+        if self.is_distributed:
+            dist.barrier()
 
     def _log_ledger(self, payload: Dict[str, object]) -> None:
+        if not self.is_master:
+            return
         with self.ledger_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload) + "\n")
 
     def _engine_report(self, metrics: Dict[str, float]) -> None:
-        if not self.engine:
+        if not self.engine or not self.engine_cfg.enabled:
             return
         serialized = json.dumps(metrics)
         try:
@@ -185,14 +226,17 @@ class Trainer:
     def fit(self, steps: int) -> None:
         accum = self.cfg.distributed.grad_accum_steps
         data_iter = iter(self.dataloader)
-        # scaler not used with bf16/fp32 training in this loop
-        for step in range(steps):
+        tokens_accum = 0
+        for micro_step in range(steps):
             batch = next(data_iter)
             input_ids = batch["input_ids"].to(self.device)
             planner_tensor = batch["planner_mask"].to(self.device)
             if planner_tensor.dtype != torch.bool:
                 planner_tensor = planner_tensor.bool()
             planner_mask = planner_tensor if planner_tensor.any() else None
+
+            tokens_accum += int(input_ids.numel())
+
             with autocast(self.cfg.precision):
                 outputs = self.model(input_ids, planner_mask=planner_mask)
 
@@ -210,7 +254,7 @@ class Trainer:
                         input_ids.size(1),
                         self.modal_cfg.slot_len,
                         center_slots,
-                        self.modal_cfg.view_window,
+                        self.current_view_window,
                         device=input_ids.device,
                         dtype=outputs["logits"].dtype,
                     )
@@ -236,7 +280,7 @@ class Trainer:
                         "plan_span_mask": plan_span_mask,
                         "slot_len": self.modal_cfg.slot_len,
                         "center_slots": center_slots,
-                        "view_window": self.modal_cfg.view_window,
+                        "view_window": self.current_view_window,
                         "slot_weights": tuple(
                             float(w) for w in self.modal_cfg.slot_weights
                         ),
@@ -259,44 +303,82 @@ class Trainer:
                     lambda_geo=self.loss_cfg.lambda_geo,
                 )
                 loss = losses["loss_total"] / accum
-            loss.backward()
 
-            if (step + 1) % accum == 0:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), max_norm=1.0
-                ).item()
-                self.optimizer.step()
-                self.scheduler.step()
-                step_norm = sum(p.data.norm().item() for p in self.model.parameters())
+            sync_context = nullcontext()
+            if self._should_no_sync(micro_step, accum):
+                sync_context = self.model.no_sync()  # type: ignore[attr-defined]
+
+            with sync_context:
+                loss.backward()
+
+            if (micro_step + 1) % accum != 0:
+                continue
+
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                self.model.parameters(), max_norm=self.grad_clip
+            ).item()
+            step_norm = sum(p.data.norm().item() for p in self.model.parameters())
+
+            metrics = GateMetrics(
+                delta_before=self.state.delta_previous,
+                delta_after=losses["loss_total"].item(),
+                grad_norm=grad_norm,
+                step_norm=step_norm,
+                kl_before=self.state.loss_mod_previous,
+                kl_after=losses["loss_mod"].item(),
+            )
+            decision = self.gate.evaluate(metrics)
+            self.state.delta_previous = losses["loss_total"].item()
+            self.state.loss_mod_previous = losses["loss_mod"].item()
+
+            if not decision.accepted:
                 self.optimizer.zero_grad(set_to_none=True)
+                self._handle_rejection()
+                self._log_step(losses, grad_norm, decision)
+                self._advance_scheduler(tokens_accum)
+                tokens_accum = 0
+                continue
 
-                metrics = GateMetrics(
-                    delta_before=self.state.delta_previous,
-                    delta_after=losses["loss_total"].item(),
-                    grad_norm=grad_norm,
-                    step_norm=step_norm,
-                    kl_before=self.state.loss_mod_previous,
-                    kl_after=losses["loss_mod"].item(),
-                )
-                decision = self.gate.evaluate(metrics)
-                self.state.delta_previous = losses["loss_total"].item()
-                self.state.loss_mod_previous = losses["loss_mod"].item()
-                self.state.step += 1
-                self.state.tokens_processed += input_ids.numel()
+            self.optimizer.step()
+            self.lr_scheduler.step()
+            self.optimizer.zero_grad(set_to_none=True)
 
-                ledger_payload = {
-                    "step": self.state.step,
-                    "delta": metrics.delta_after,
-                    "loss_ent": losses["loss_ent"].item(),
-                    "loss_mod": losses["loss_mod"].item(),
-                    "loss_mod_planner": losses["loss_mod_planner"].item(),
-                    "loss_mod_token": losses["loss_mod_token"].item(),
-                    "accepted": decision.accepted,
-                    "reason": decision.reason,
-                    "trust_radius": decision.trust_radius,
-                }
-                self._log_ledger(ledger_payload)
-                self._engine_report(ledger_payload)
+            self.state.step += 1
+            self.state.tokens_processed += tokens_accum
+
+            ledger_payload = {
+                "step": self.state.step,
+                "delta": metrics.delta_after,
+                "loss_ent": losses["loss_ent"].item(),
+                "loss_mod": losses["loss_mod"].item(),
+                "loss_mod_planner": losses["loss_mod_planner"].item(),
+                "loss_mod_token": losses["loss_mod_token"].item(),
+                "accepted": decision.accepted,
+                "reason": decision.reason,
+                "trust_radius": decision.trust_radius,
+                "view": {
+                    "window": self.current_view_window,
+                },
+            }
+            self._log_ledger(ledger_payload)
+            self._engine_report(ledger_payload)
+            self._log_step(losses, grad_norm, decision)
+            self._maybe_save_checkpoint(tokens_accum)
+            self._advance_scheduler(tokens_accum)
+            tokens_accum = 0
+
+        if self.tb_writer:
+            self.tb_writer.flush()
+
+    def _handle_rejection(self) -> None:
+        self._scale_lr(self.gate_cfg.backtrack_factor)
+        if (
+            self.gate_cfg.widen_view_on_reject
+            and self.current_view_window < self.gate_cfg.max_view_window
+        ):
+            self.current_view_window += 1
+            logger.info("widened view window to %s", self.current_view_window)
+
 
     def _compute_center_slots(self, input_ids: torch.Tensor) -> torch.LongTensor:
         batch = input_ids.size(0)

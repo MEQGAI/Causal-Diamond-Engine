@@ -1,6 +1,6 @@
 model_cfg: configs/models/fm-toy.json
 data_catalog: data/catalog.toy.yaml
-mixture: toy_mix
+mixture: configs/data/mixtures/base_mix.yaml
 precision: fp32
 optimizer:
   name: adamw
@@ -11,18 +11,21 @@ optimizer:
   schedule: constant
 distributed:
   backend: gloo
+  ddp: false
   fsdp: false
   fsdp_policy: full_shard
   grad_accum_steps: 1
+  gradient_clip: 1.0
 logging:
   wandb: false
   tensorboard: false
   modal_ledger_interval: 10
+  log_every: 10
 losses:
   lambda_geo: 0.0
   modal:
     apply_on: ["planner"]
-    lambda_mod: 0.25
+    lambda_mod: 0.0
     lambda_planner: 1.0
     lambda_token: 0.0
     tau_planner: 1.0
@@ -45,3 +48,18 @@ gate:
   armijo_alpha: 1.0e-4
   trust_radius_init: 0.05
   kl_smooth_max: 0.5
+  stability_slice_ratio: 0.25
+  backtrack_factor: 0.5
+  widen_view_on_reject: false
+  max_view_window: 2
+checkpoints:
+  output_dir: ckpts/toy
+  save_every_steps: 50
+  save_every_tokens: 100000
+  keep_last: 2
+  resume: never
+engine:
+  enabled: false
+  eval_interval: 200
+  batch_size: 2
+  qfc_tolerance: 1.0e-8

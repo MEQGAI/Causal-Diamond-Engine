@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import yaml
 
@@ -20,9 +20,11 @@ class OptimizerConfig:
 @dataclass
 class DistributedConfig:
     backend: str = "nccl"
+    ddp: bool = True
     fsdp: bool = False
     fsdp_policy: str = "full_shard"
     grad_accum_steps: int = 1
+    gradient_clip: float = 1.0
 
 
 @dataclass
@@ -30,6 +32,8 @@ class LoggingConfig:
     wandb: bool = False
     tensorboard: bool = False
     modal_ledger_interval: int = 10
+    log_every: int = 20
+    wandb_project: Optional[str] = None
 
 
 @dataclass
@@ -45,6 +49,10 @@ class GateConfig:
     armijo_alpha: float
     trust_radius_init: float
     kl_smooth_max: float
+    stability_slice_ratio: float = 0.125
+    backtrack_factor: float = 0.5
+    widen_view_on_reject: bool = False
+    max_view_window: int = 3
 
 
 @dataclass
@@ -71,6 +79,23 @@ class LossConfig:
 
 
 @dataclass
+class CheckpointConfig:
+    output_dir: Path = Path("checkpoints")
+    save_every_steps: int = 2000
+    save_every_tokens: int = 50_000_000
+    keep_last: int = 5
+    resume: str = "auto"
+
+
+@dataclass
+class EngineEvalConfig:
+    enabled: bool = False
+    eval_interval: int = 2000
+    batch_size: int = 8
+    qfc_tolerance: float = 1.0e-8
+
+
+@dataclass
 class TrainConfig:
     model_cfg: Path
     data_catalog: Path
@@ -82,6 +107,8 @@ class TrainConfig:
     ledger: LedgerConfig
     gate: GateConfig
     losses: LossConfig
+    checkpoints: CheckpointConfig
+    engine_eval: EngineEvalConfig
 
 
 def load_train_config(path: Path | str) -> TrainConfig:
@@ -95,8 +122,17 @@ def load_train_config(path: Path | str) -> TrainConfig:
     modal_raw = losses_raw.get("modal", {})
     losses = LossConfig(
         modal=ModalLossConfig(**modal_raw),
-        lambda_geo=losses_raw.get("lambda_geo", 0.0),
+        lambda_geo=float(losses_raw.get("lambda_geo", 0.0)),
     )
+    checkpoints_cfg = CheckpointConfig(
+        **data.get(
+            "checkpoints",
+            {"output_dir": data.get("output_dir", "checkpoints")},
+        )
+    )
+    if not isinstance(checkpoints_cfg.output_dir, Path):
+        checkpoints_cfg.output_dir = Path(checkpoints_cfg.output_dir)
+    engine_eval_cfg = EngineEvalConfig(**data.get("engine", {}))
     cfg = TrainConfig(
         model_cfg=Path(data["model_cfg"]),
         data_catalog=Path(data["data_catalog"]),
@@ -108,6 +144,8 @@ def load_train_config(path: Path | str) -> TrainConfig:
         ledger=ledger,
         gate=gate,
         losses=losses,
+        checkpoints=checkpoints_cfg,
+        engine_eval=engine_eval_cfg,
     )
     return cfg
 
@@ -117,4 +155,6 @@ __all__ = [
     "load_train_config",
     "LossConfig",
     "ModalLossConfig",
+    "CheckpointConfig",
+    "EngineEvalConfig",
 ]
