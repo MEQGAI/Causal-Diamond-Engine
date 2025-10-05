@@ -53,8 +53,8 @@ flowchart LR
     F --> H["Plan Proposer (policy / LM head)"]
     H --> CEX["Conditional Expectation E (modular projection)"]
     H -->|proposal p| L[("Modal Ledger")]
-    CEX -->|E[p]| L
-    L -->|"S_mod = D_KL(p ∥ E[p])"| D["Local Optimizer (δS = 0)"]
+    CEX -->|"E[p]"| L
+    L -->|"S_mod calculation"| D["Local Optimizer (δS = 0)"]
     B --> D
     G --> D
   end
