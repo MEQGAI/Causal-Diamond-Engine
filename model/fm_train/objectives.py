@@ -12,17 +12,21 @@ from fm_kernels import categorical_kl
 def language_model_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     shift_logits = logits[:, :-1].contiguous()
     shift_labels = labels[:, 1:].contiguous()
-    loss = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+    loss = F.cross_entropy(
+        shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+    )
     return loss
 
 
-def planner_kl(planner_log_probs: torch.Tensor, slot_layout: SlotLayout, window: int = 1) -> torch.Tensor:
+def planner_kl(
+    planner_log_probs: torch.Tensor, slot_layout: SlotLayout, window: int = 1
+) -> torch.Tensor:
     batch, seq, vocab = planner_log_probs.shape
     device = planner_log_probs.device
     slots = torch.arange(seq, device=device) // slot_layout.slot_len
     projected = torch.zeros_like(planner_log_probs)
     valid = torch.zeros((batch, seq), device=device, dtype=torch.bool)
-    probs = planner_log_probs.exp().clamp_min(1e-9)
+    # probs variable not needed beyond debug; avoid unused variable
 
     for slot_idx in range(slot_layout.slots_per_seq):
         mask = (slots >= slot_idx - window) & (slots <= slot_idx + window)
@@ -56,7 +60,11 @@ def compute_total_loss(
     losses["loss_ent"] = language_model_loss(logits, labels)
     losses["loss_mod"] = planner_kl(planner, slot_layout)
     losses["loss_geo"] = torch.tensor(lambda_geo, device=logits.device)
-    losses["loss_total"] = losses["loss_ent"] + lambda_mod * losses["loss_mod"] + lambda_geo * losses["loss_geo"]
+    losses["loss_total"] = (
+        losses["loss_ent"]
+        + lambda_mod * losses["loss_mod"]
+        + lambda_geo * losses["loss_geo"]
+    )
     return losses
 
 

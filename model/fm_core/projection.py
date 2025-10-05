@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
 
 import torch
 
@@ -49,7 +48,9 @@ def mask_attention(attn_scores: torch.Tensor, mask: torch.Tensor) -> torch.Tenso
     return attn_scores
 
 
-def extract_view(hidden: torch.Tensor, center_slot: int, layout: SlotLayout) -> torch.Tensor:
+def extract_view(
+    hidden: torch.Tensor, center_slot: int, layout: SlotLayout
+) -> torch.Tensor:
     """Slice the hidden state corresponding to the actualised view."""
 
     start = max(0, (center_slot - 1) * layout.slot_len)

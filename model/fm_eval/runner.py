@@ -30,7 +30,11 @@ class EvalSample:
 
 
 def load_thresholds(config_path: Path | str) -> GateThresholds:
-    data = json.loads(Path(config_path).read_text()) if str(config_path).endswith(".json") else _load_yaml(config_path)
+    data = (
+        json.loads(Path(config_path).read_text())
+        if str(config_path).endswith(".json")
+        else _load_yaml(config_path)
+    )
     return GateThresholds(
         accuracy_min=float(data["accuracy_min"]),
         latency_p95_ms_max=float(data["latency_p95_ms_max"]),
@@ -39,7 +43,9 @@ def load_thresholds(config_path: Path | str) -> GateThresholds:
     )
 
 
-def _load_yaml(path: Path | str) -> Dict[str, object]:  # pragma: no cover - fallback parser
+def _load_yaml(
+    path: Path | str,
+) -> Dict[str, object]:  # pragma: no cover - fallback parser
     import yaml
 
     return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -72,7 +78,9 @@ def cascade_fail_rate(planner_probs: torch.Tensor, planner_mask: torch.Tensor) -
     return float(failures.float().mean().item())
 
 
-def planner_ece(planner_probs: torch.Tensor, planner_mask: torch.Tensor, bins: int = 10) -> float:
+def planner_ece(
+    planner_probs: torch.Tensor, planner_mask: torch.Tensor, bins: int = 10
+) -> float:
     confidences = planner_probs.exp().max(dim=-1).values[planner_mask]
     if confidences.numel() == 0:
         return 0.0
@@ -97,9 +105,15 @@ def evaluate_model(model_dir: Path | str) -> Dict[str, float]:
     config = model.cfg
     tokenizer_path = Path(model_dir) / "tokenizer.model"
     tokenizer = SentencePieceTokenizer(str(tokenizer_path), allow_fallback=False)
-    specials = SpecialTokenIds.from_processor(tokenizer.processor, config.special_tokens)
+    specials = SpecialTokenIds.from_processor(
+        tokenizer.processor, config.special_tokens
+    )
 
-    metrics: Dict[str, List[float]] = {"perplexity": [], "cascade_fail": [], "planner_ece": []}
+    metrics: Dict[str, List[float]] = {
+        "perplexity": [],
+        "cascade_fail": [],
+        "planner_ece": [],
+    }
     samples = _default_samples()
     with torch.no_grad():
         for sample in samples:
@@ -115,13 +129,18 @@ def evaluate_model(model_dir: Path | str) -> Dict[str, float]:
             metrics["cascade_fail"].append(cascade_fail_rate(planner, mask))
             metrics["planner_ece"].append(planner_ece(planner, mask))
 
-    return {name: float(sum(values) / max(1, len(values))) for name, values in metrics.items()}
+    return {
+        name: float(sum(values) / max(1, len(values)))
+        for name, values in metrics.items()
+    }
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluate foundation model gates")
     parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--model", required=False, type=Path, default=Path("checkpoints/fm-b-220m"))
+    parser.add_argument(
+        "--model", required=False, type=Path, default=Path("checkpoints/fm-b-220m")
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     thresholds = load_thresholds(args.config)

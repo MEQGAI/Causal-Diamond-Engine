@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Dict, Optional
 
 import torch
@@ -63,7 +62,11 @@ class MultiHeadAttention(nn.Module):
         self.register_buffer("rope_sin", None, persistent=False)
 
     def _maybe_init_rope(self, device: torch.device, dtype: torch.dtype) -> None:
-        if self.rope_cos is not None and self.rope_cos.device == device and self.rope_cos.dtype == dtype:
+        if (
+            self.rope_cos is not None
+            and self.rope_cos.device == device
+            and self.rope_cos.dtype == dtype
+        ):
             return
         cos, sin = build_rope_cache(
             self.head_dim,
@@ -166,15 +169,23 @@ class FoundationModel(nn.Module):
         cfg.validate()
         self.cfg = cfg
         self.embeddings = nn.Embedding(cfg.vocab_size, cfg.d_model)
-        self.blocks = nn.ModuleList([TransformerBlock(cfg) for _ in range(cfg.n_layers)])
+        self.blocks = nn.ModuleList(
+            [TransformerBlock(cfg) for _ in range(cfg.n_layers)]
+        )
         self.final_norm = RMSNorm(cfg.d_model)
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
         self.planner_head = PlannerHead(cfg.d_model, cfg.planner_vocab)
-        self.slot_layout = slot_layout or SlotLayout(slot_len=cfg.seq_len, slots_per_seq=1)
+        self.slot_layout = slot_layout or SlotLayout(
+            slot_len=cfg.seq_len, slots_per_seq=1
+        )
         self.slot_window = slot_window
         self.register_buffer(
             "slot_mask",
-            build_slot_mask(self.slot_layout.seq_len, self.slot_layout.slot_len, window=self.slot_window),
+            build_slot_mask(
+                self.slot_layout.seq_len,
+                self.slot_layout.slot_len,
+                window=self.slot_window,
+            ),
             persistent=False,
         )
 
@@ -194,8 +205,12 @@ class FoundationModel(nn.Module):
         planner = self.planner_head(hidden)
         if planner_mask is not None:
             # mask planner logits outside plan spans by setting to -inf
-            masked_logits = planner.logits.masked_fill(~planner_mask.bool().unsqueeze(-1), float("-inf"))
-            planner = PlannerOutput(logits=masked_logits, log_probs=torch.log_softmax(masked_logits, dim=-1))
+            masked_logits = planner.logits.masked_fill(
+                ~planner_mask.bool().unsqueeze(-1), float("-inf")
+            )
+            planner = PlannerOutput(
+                logits=masked_logits, log_probs=torch.log_softmax(masked_logits, dim=-1)
+            )
         return {
             "hidden_states": hidden,
             "logits": logits,

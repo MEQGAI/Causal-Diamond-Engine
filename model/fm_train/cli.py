@@ -10,7 +10,9 @@ app = typer.Typer(add_completion=False)
 
 
 @app.command()
-def fit(config: Path, steps: int = typer.Option(100, help="Number of optimizer steps")) -> None:
+def fit(
+    config: Path, steps: int = typer.Option(100, help="Number of optimizer steps")
+) -> None:
     """Run pre-training using the provided YAML configuration."""
 
     train_from_config(config, steps)

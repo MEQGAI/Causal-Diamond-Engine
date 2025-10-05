@@ -26,9 +26,13 @@ def flash_attention(
         )
 
     if attn_mask is not None:
-        raise NotImplementedError("FlashAttention path does not support custom attn_mask yet")
+        raise NotImplementedError(
+            "FlashAttention path does not support custom attn_mask yet"
+        )
 
-    return _flash_attn(q, k, v, dropout_p=dropout_p, softmax_scale=None, causal=is_causal)
+    return _flash_attn(
+        q, k, v, dropout_p=dropout_p, softmax_scale=None, causal=is_causal
+    )
 
 
 __all__ = ["flash_attention"]

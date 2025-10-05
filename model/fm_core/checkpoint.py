@@ -29,22 +29,30 @@ def load_checkpoint(
         try:
             from safetensors.torch import load_file  # type: ignore
         except ImportError as exc:  # pragma: no cover - optional dependency
-            raise ImportError("safetensors package required to load .safetensors weights") from exc
+            raise ImportError(
+                "safetensors package required to load .safetensors weights"
+            ) from exc
         state_dict = load_file(weight_path, device=map_location or "cpu")
     else:
         weight_path = model_dir / "pytorch_model.bin"
         if not weight_path.exists():
-            raise FileNotFoundError("no weights file found (model.safetensors/pytorch_model.bin)")
+            raise FileNotFoundError(
+                "no weights file found (model.safetensors/pytorch_model.bin)"
+            )
         state_dict = torch.load(weight_path, map_location=map_location)
 
     missing, unexpected = model.load_state_dict(state_dict, strict=strict)
     if missing or unexpected:
-        raise RuntimeError(f"state_dict mismatch: missing={missing}, unexpected={unexpected}")
+        raise RuntimeError(
+            f"state_dict mismatch: missing={missing}, unexpected={unexpected}"
+        )
 
     return model.to(map_location or "cpu"), cfg.to_dict()
 
 
-def save_checkpoint(model: FoundationModel, cfg: ModelConfig, out_dir: Path | str) -> None:
+def save_checkpoint(
+    model: FoundationModel, cfg: ModelConfig, out_dir: Path | str
+) -> None:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     cfg.to_json(out_dir / "config.json")

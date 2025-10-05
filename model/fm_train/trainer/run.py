@@ -19,9 +19,15 @@ class TrainerConfig:
 
 def parse_args() -> TrainerConfig:
     parser = argparse.ArgumentParser(description="Reality's Ledger trainer")
-    parser.add_argument("--task", default="tool_reasoning", help="Curriculum identifier")
-    parser.add_argument("--budget", type=float, default=2.0, help="Causal-diamond budget")
-    parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs")
+    parser.add_argument(
+        "--task", default="tool_reasoning", help="Curriculum identifier"
+    )
+    parser.add_argument(
+        "--budget", type=float, default=2.0, help="Causal-diamond budget"
+    )
+    parser.add_argument(
+        "--epochs", type=int, default=1, help="Number of training epochs"
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,

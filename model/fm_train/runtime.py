@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 
 import torch
-from torch import nn
 from torch.optim import AdamW
 from torch.utils.data import IterableDataset, DataLoader
 
@@ -53,9 +52,15 @@ class MixtureIterableDataset(IterableDataset):
         self.tokens_per_seq = catalog.seq_len
 
     def _advance_stage(self) -> None:
-        while self.stage_idx < len(self.schedule) - 1 and self.tokens_emitted >= self.schedule[self.stage_idx].until_tokens:
+        while (
+            self.stage_idx < len(self.schedule) - 1
+            and self.tokens_emitted >= self.schedule[self.stage_idx].until_tokens
+        ):
             self.stage_idx += 1
-            logger.info("advancing mixture stage", extra={"stage": self.stage_idx, "tokens": self.tokens_emitted})
+            logger.info(
+                "advancing mixture stage",
+                extra={"stage": self.stage_idx, "tokens": self.tokens_emitted},
+            )
 
     def _sample_text(self, dataset_id: str) -> str:
         cfg = self.dataset_lookup[dataset_id]
@@ -75,7 +80,9 @@ class MixtureIterableDataset(IterableDataset):
                 text = str(sample.meta["text"])
                 if text.strip():
                     return text
-        raise RuntimeError(f"dataset {dataset_id} yielded no valid samples; ensure shards are accessible")
+        raise RuntimeError(
+            f"dataset {dataset_id} yielded no valid samples; ensure shards are accessible"
+        )
 
     def __iter__(self) -> Iterator[PackedSequence]:
         self.stage_idx = 0
@@ -115,10 +122,14 @@ def autocast(precision: str):  # pragma: no cover - simple context helper
 class Trainer:
     def __init__(self, cfg: TrainConfig, device: Optional[torch.device] = None) -> None:
         self.cfg = cfg
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
         self.model_cfg: ModelConfig = load_model_config(cfg.model_cfg)
         self.catalog: Catalog = load_catalog(cfg.data_catalog)
-        self.model = FoundationModel(self.model_cfg, slot_window=cfg.ledger.view.get("window", 1))
+        self.model = FoundationModel(
+            self.model_cfg, slot_window=cfg.ledger.view.get("window", 1)
+        )
         self.model.to(self.device)
         self.optimizer = AdamW(
             self.model.parameters(),
@@ -173,7 +184,7 @@ class Trainer:
     def fit(self, steps: int) -> None:
         accum = self.cfg.distributed.grad_accum_steps
         data_iter = iter(self.dataloader)
-        scaler = torch.cuda.amp.GradScaler(enabled=False)
+        # scaler not used with bf16/fp32 training in this loop
         for step in range(steps):
             batch = next(data_iter)
             input_ids = batch["input_ids"].to(self.device)
@@ -190,7 +201,9 @@ class Trainer:
             loss.backward()
 
             if (step + 1) % accum == 0:
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0).item()
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), max_norm=1.0
+                ).item()
                 self.optimizer.step()
                 self.scheduler.step()
                 step_norm = sum(p.data.norm().item() for p in self.model.parameters())
@@ -201,7 +214,9 @@ class Trainer:
                     delta_after=losses["loss_total"].item(),
                     grad_norm=grad_norm,
                     step_norm=step_norm,
-                    kl_change=abs(losses["loss_mod"].item() - self.state.loss_mod_previous),
+                    kl_change=abs(
+                        losses["loss_mod"].item() - self.state.loss_mod_previous
+                    ),
                 )
                 decision = self.gate.evaluate(metrics)
                 self.state.delta_previous = losses["loss_total"].item()

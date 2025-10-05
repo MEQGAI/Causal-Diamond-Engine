@@ -12,7 +12,9 @@ except Exception:  # noqa: BLE001 - we want to swallow any build-time errors
     ops = SimpleNamespace()  # allows attribute access without crashing during import
 
 
-def categorical_kl(p_log_probs: torch.Tensor, q_log_probs: torch.Tensor) -> torch.Tensor:
+def categorical_kl(
+    p_log_probs: torch.Tensor, q_log_probs: torch.Tensor
+) -> torch.Tensor:
     """Compute KL divergence KL(p || q) for batched categorical distributions."""
 
     p = p_log_probs.exp().clamp_min(1e-9)

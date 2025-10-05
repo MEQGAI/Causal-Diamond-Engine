@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
-
-import torch
 
 
 @dataclass
@@ -34,7 +31,10 @@ class NullStabilityGate:
         accepted = True
         reason = "accepted"
 
-        if metrics.delta_after > metrics.delta_before - self.alpha * metrics.grad_norm**2:
+        if (
+            metrics.delta_after
+            > metrics.delta_before - self.alpha * metrics.grad_norm**2
+        ):
             accepted = False
             reason = "armijo"
         elif metrics.step_norm > self.trust_radius:
@@ -49,7 +49,9 @@ class NullStabilityGate:
         else:
             self.trust_radius *= 0.9
 
-        return GateDecision(accepted=accepted, reason=reason, trust_radius=self.trust_radius)
+        return GateDecision(
+            accepted=accepted, reason=reason, trust_radius=self.trust_radius
+        )
 
 
 __all__ = ["NullStabilityGate", "GateMetrics", "GateDecision"]

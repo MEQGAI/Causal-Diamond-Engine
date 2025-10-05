@@ -12,7 +12,7 @@ from fm_core.config import SpecialTokens
 
 try:  # pragma: no cover - optional dependency
     import sentencepiece as spm  # type: ignore
-except ImportError:  # pragma: no cover
+except Exception:  # pragma: no cover
     spm = None
 
 
@@ -31,7 +31,9 @@ class SpecialTokenIds:
     tool: int
 
     @classmethod
-    def from_processor(cls, processor: spm.SentencePieceProcessor, specials: SpecialTokens) -> "SpecialTokenIds":
+    def from_processor(
+        cls, processor: spm.SentencePieceProcessor, specials: SpecialTokens
+    ) -> "SpecialTokenIds":
         ids = {
             "bos": processor.piece_to_id(specials.bos),
             "eos": processor.piece_to_id(specials.eos),
@@ -77,15 +79,23 @@ class SentencePieceTokenizer:
             if allow_fallback:
                 self.processor = _FallbackProcessor()
             else:
-                raise ImportError("sentencepiece is required; install sentencepiece or set allow_fallback=True")
+                raise ImportError(
+                    "sentencepiece is required; install sentencepiece or set allow_fallback=True"
+                )
         elif path is None or not path.exists():
             if allow_fallback:
                 self.processor = _FallbackProcessor()
             else:
                 raise FileNotFoundError(f"tokenizer model not found at {model_path}")
         else:
-            self.processor = spm.SentencePieceProcessor()
-            self.processor.load(str(path))
+            try:
+                self.processor = spm.SentencePieceProcessor()
+                self.processor.load(str(path))
+            except Exception:
+                if allow_fallback:
+                    self.processor = _FallbackProcessor()
+                else:
+                    raise
 
     def encode(self, text: str) -> List[int]:
         if hasattr(self.processor, "encode"):
@@ -117,8 +127,12 @@ class DiamondPacker:
         allow_tokenizer_fallback: bool = False,
     ) -> None:
         self.catalog = catalog
-        self.tokenizer = SentencePieceTokenizer(str(catalog.tokenizer), allow_fallback=allow_tokenizer_fallback)
-        self.special_ids = SpecialTokenIds.from_processor(self.tokenizer.processor, special_tokens)
+        self.tokenizer = SentencePieceTokenizer(
+            str(catalog.tokenizer), allow_fallback=allow_tokenizer_fallback
+        )
+        self.special_ids = SpecialTokenIds.from_processor(
+            self.tokenizer.processor, special_tokens
+        )
         self.seq_len = catalog.seq_len
         self.slot_len = catalog.packing.slot_len
         self.slots_per_seq = catalog.packing.slots_per_seq
@@ -144,9 +158,14 @@ class DiamondPacker:
             seq[view_end_idx] = self.special_ids.view_end
 
         # Optionally insert plan span markers.
-        if self.rng.random() < self.plan_probability and view_end_idx - view_start_idx > 4:
+        if (
+            self.rng.random() < self.plan_probability
+            and view_end_idx - view_start_idx > 4
+        ):
             span_start = self.rng.randint(view_start_idx + 1, view_end_idx - 2)
-            span_end = min(len(seq) - 2, span_start + self.rng.randint(4, self.slot_len // 4))
+            span_end = min(
+                len(seq) - 2, span_start + self.rng.randint(4, self.slot_len // 4)
+            )
             seq[span_start] = self.special_ids.plan_start
             seq[span_end] = self.special_ids.plan_end
             for idx in range(span_start, span_end + 1):
@@ -165,11 +184,18 @@ class DiamondPacker:
     def pack_raw_text(self, text: str) -> PackedSequence:
         tokens = self.tokenizer.encode(text)
         if not tokens:
-            raise ValueError("tokenizer produced empty sequence; confirm tokenizer model and input text")
+            raise ValueError(
+                "tokenizer produced empty sequence; confirm tokenizer model and input text"
+            )
         seq, planner_mask = self._insert_specials(tokens)
         input_ids = torch.tensor(seq, dtype=torch.long)
         planner = torch.tensor(planner_mask, dtype=torch.bool)
         return PackedSequence(input_ids=input_ids, planner_mask=planner)
 
 
-__all__ = ["DiamondPacker", "PackedSequence", "SentencePieceTokenizer", "SpecialTokenIds"]
+__all__ = [
+    "DiamondPacker",
+    "PackedSequence",
+    "SentencePieceTokenizer",
+    "SpecialTokenIds",
+]
