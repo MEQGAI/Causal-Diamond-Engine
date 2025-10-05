@@ -59,9 +59,18 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     seq_len = x.size(-2)
     cos = cos[:seq_len]
     sin = sin[:seq_len]
+
+    # Reshape cos/sin so they broadcast across any leading batch dims.
+    broadcast_shape = (1,) * (x.dim() - 2) + (seq_len, cos.size(-1))
+    cos = cos.view(broadcast_shape)
+    sin = sin.view(broadcast_shape)
     x_even, x_odd = x[..., ::2], x[..., 1::2]
     rotated = torch.stack((-x_odd, x_even), dim=-1).reshape_as(x)
-    return (x * cos.unsqueeze(-1)) + (rotated * sin.unsqueeze(-1))
+
+    cos = cos.repeat_interleave(2, dim=-1)
+    sin = sin.repeat_interleave(2, dim=-1)
+
+    return (x * cos) + (rotated * sin)
 
 
 __all__ = ["build_rope_cache", "apply_rope"]

@@ -94,8 +94,16 @@ class MultiHeadAttention(nn.Module):
         k = self.k_proj(x).view(batch, seq_len, self.n_kv_heads, self.head_dim)
         v = self.v_proj(x).view(batch, seq_len, self.n_kv_heads, self.head_dim)
 
+        # apply RoPE by flattening the head dimension so the helper sees
+        # tensors shaped (batch, seq_len, head_dim)
+        q = q.permute(0, 2, 1, 3).reshape(batch * self.n_heads, seq_len, self.head_dim)
+        k = k.permute(0, 2, 1, 3).reshape(batch * self.n_kv_heads, seq_len, self.head_dim)
+
         q = apply_rope(q, self.rope_cos, self.rope_sin)
         k = apply_rope(k, self.rope_cos, self.rope_sin)
+
+        q = q.view(batch, self.n_heads, seq_len, self.head_dim).permute(0, 2, 1, 3)
+        k = k.view(batch, self.n_kv_heads, seq_len, self.head_dim).permute(0, 2, 1, 3)
 
         q = q.permute(0, 2, 1, 3)
         k = k.permute(0, 2, 1, 3)
@@ -114,7 +122,7 @@ class MultiHeadAttention(nn.Module):
                 v,
                 attn_mask=mask,
                 dropout_p=self.dropout if self.training else 0.0,
-                is_causal=causal,
+                is_causal=False,
             )
         else:
             out = flash_attention(

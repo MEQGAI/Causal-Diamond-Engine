@@ -188,9 +188,12 @@ class Trainer:
         for step in range(steps):
             batch = next(data_iter)
             input_ids = batch["input_ids"].to(self.device)
-            planner_mask = batch["planner_mask"].to(self.device)
+            planner_tensor = batch["planner_mask"].to(self.device)
+            planner_mask = planner_tensor if planner_tensor.any() else None
             with autocast(self.cfg.precision):
-                outputs = self.model(input_ids, planner_mask=planner_mask)
+                outputs = self.model(
+                    input_ids, planner_mask=planner_mask
+                )
                 losses = compute_total_loss(
                     outputs,
                     batch={"input_ids": input_ids},

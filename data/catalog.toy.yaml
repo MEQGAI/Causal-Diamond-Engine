@@ -1,0 +1,18 @@
+version: 1
+tokenizer: data/sp_text/tokenizer.model
+seq_len: 512
+packing:
+  slot_len: 128
+  slots_per_seq: 4
+datasets:
+  - id: toy-local
+    kind: text
+    shards: "data/sp_text/toy/toy-{00000..00000}.tar"
+    format: webdataset
+    weight: 1.0
+mixtures:
+  - name: toy_mix
+    schedule:
+      - until_tokens: 1000000
+        weights:
+          toy-local: 1.0

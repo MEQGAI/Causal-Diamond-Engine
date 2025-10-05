@@ -58,6 +58,7 @@ terraform.tfstate*
 /data/sp_text/
 /models/
 checkpoints/
+ledger.jsonl
 
 # Notebooks & outputs
 notebooks/.ipynb_checkpoints/
