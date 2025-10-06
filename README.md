@@ -41,7 +41,7 @@
 
 ```bash
 # 1) Install
-git clone https://example.com/meqg-diamond.git
+git clone https://github.com/MEQGAI/meqg-diamond.git
 cd meqg-diamond
 pip install -e ./model  # dev install for all fm_* packages
 
